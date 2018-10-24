@@ -225,6 +225,12 @@ int pass_handler(int connfd, char* buffer) {
 	return 0;
 }
 
+int syst_handler(int connfd) {
+	char response[1024];
+	memset(response, '\0', sizeof(response));
+	int len = prepare_response_oneline(response, 215, )
+}
+
 int request_not_support_handler(int connfd) {
 	char response[256];
 	memset(response, '\0', sizeof(response));
