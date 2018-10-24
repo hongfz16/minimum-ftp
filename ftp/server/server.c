@@ -1,5 +1,6 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <arpa/inet.h>
 
 #include <unistd.h>
 #include <errno.h>
@@ -82,7 +83,6 @@ int msocket_read(int connfd, char* buffer, int buffer_len) {
 			}
 		}
 	}
-	// buffer[p-1] = '\0';
 	return p;
 }
 
@@ -142,7 +142,7 @@ int prepare_response(char* buffer, int code, char** contents, int line_num) {
 }
 
 int unpack_message(char* buffer) {
-	char order[5];
+	char order[16];
 	memset(order, '\0', sizeof(order));
 	int i=0;
 	for(i=0;i<4;++i) {
@@ -172,7 +172,40 @@ int unpack_message(char* buffer) {
 	if(strcmp(order, "QUIT")==0) {
 		return 8;
 	}
+	if(strcmp(order, "STOR")==0) {
+		return 8;
+	}
+	if(strcmp(order, "MKD ")==0) {
+		return 9;
+	}
+	if(strcmp(order, "CWD ")==0) {
+		return 10;
+	}
+	if(strcmp(order, "PWD\n")==0) {
+		return 11;
+	}
+	if(strcmp(order, "LIST")==0) {
+		return 12;
+	}
+	if(strcmp(order, "RMD ")==0) {
+		return 13;
+	}
+	if(strcmp(order, "RNFR")==0) {
+		return 14;
+	}
+	if(strcmp(order, "RNTO")==0) {
+		return 15;
+	}
 	return 100;
+}
+
+int request_not_support_handler(int connfd) {
+	char response[256];
+	memset(response, '\0', sizeof(response));
+	int len = prepare_response_oneline(response, 500, 1, "Unsupported command.");
+	if(msocket_write(connfd, response, strlen(response))==-1) {
+		return -1;
+	}
 }
 
 int user_handler(int connfd, char* buffer) {
@@ -189,20 +222,24 @@ int user_handler(int connfd, char* buffer) {
 		strcpy(contents[0], "Guest login ok;");
 		strcpy(contents[1], "Send your complete e-mail address as password.");
 		int len = prepare_response(response, 331, contents, 2);
+		free(contents[0]);
+		free(contents[1]);
 		if(msocket_write(connfd, response, strlen(response))==-1) {
 			return -1;
 		}
-		return 0;
 	} else {
 		int len = prepare_response_oneline(response, 530, 1, "Invalid username.");
 		if(msocket_write(connfd, response, strlen(response))==-1) {
 			return -1;
 		}
-		return 0;
 	}
+	return 0;
 }
 
 int pass_handler(int connfd, char* buffer) {
+	if(strlen(buffer)<7) {
+		return request_not_support_handler(connfd);
+	}
 	char password[256];
 	char response[1024];
 	memset(password, '\0', sizeof(password));
@@ -222,22 +259,249 @@ int pass_handler(int connfd, char* buffer) {
 	if(msocket_write(connfd, response, strlen(response))==-1) {
 		return -1;
 	}
+	for(i=0;i<3;++i) {
+		free(contents[i]);
+	}
 	return 0;
 }
 
-int syst_handler(int connfd) {
+int syst_handler(int connfd, char* buffer) {
+	if(strlen(buffer)>5) {
+		return request_not_support_handler(connfd);
+	}
 	char response[1024];
 	memset(response, '\0', sizeof(response));
-	int len = prepare_response_oneline(response, 215, )
-}
-
-int request_not_support_handler(int connfd) {
-	char response[256];
-	memset(response, '\0', sizeof(response));
-	int len = prepare_response_oneline(response, 500, 1, "Unsupported command.");
+	int len = prepare_response_oneline(response, 215, 1, "UNIX Type: L8");
 	if(msocket_write(connfd, response, strlen(response))==-1) {
 		return -1;
 	}
+	return 0;
+}
+
+int type_handler(int connfd, char* buffer) {
+	if(strlen(buffer)<7) {
+		return request_not_support_handler(connfd);
+	}
+	char type_str[256];
+	char response[1024];
+	memset(type_str, '\0', sizeof(type_str));
+	memset(response, '\0', sizeof(response));
+	strncpy(type_str, buffer+5, strlen(buffer)-6);
+	if(strcmp(type_str, "I")==0) {
+		int len = prepare_response_oneline(response, 200, 1, "Type set to I.");
+		if(msocket_write(connfd, response, strlen(response))==-1) {
+			return -1;
+		}
+		return 0;
+	} else {
+		return request_not_support_handler(connfd);
+	}
+}
+
+int port_handler(int connfd, char* buffer, int* pdatafd, struct sockaddr_in* paddr) {
+	if(strlen(buffer)<7) {
+		return request_not_support_handler(connfd);
+	}
+	int port = -1;
+	char addr[256];
+	char response[1024];
+	memset(addr, '\0', sizeof(addr));
+	memset(response, '\0', sizeof(response));
+	int parse[6];
+	char tmp[16];
+	memset(tmp, '\0', sizeof(tmp));
+	int i=0;
+	int comma_count=0;
+	int tmp_count=0;
+	for(i=5;buffer[i]!='\0';++i) {
+		if(buffer[i]==',' || buffer[i]=='\n') {
+			if(tmp_count==0) {
+				return request_not_support_handler(connfd);
+			} else {
+				if(comma_count>5) {
+					return request_not_support_handler(connfd);
+				}
+				// sprintf(tmp, "%d", parse[comma_count]);
+				parse[comma_count] = atoi(tmp);
+			}
+			comma_count+=1;
+			tmp_count=0;
+			memset(tmp, '\0', 16);
+		} else if(buffer[i]<='9' && buffer[i]>='0') {
+			tmp[tmp_count]=buffer[i];
+			tmp_count+=1;
+		} else {
+			return request_not_support_handler(connfd);
+		}
+	}
+	if(comma_count!=6) {
+		return request_not_support_handler(connfd);
+	}
+	for(i=0;i<6;++i) {
+		if(parse[i]<0 || parse[i]>255) {
+			return request_not_support_handler(connfd);
+		}
+	}
+
+	if(*pdatafd>0) {
+		close(*pdatafd);
+	}
+
+	int len = prepare_response_oneline(response, 200, 1, "PORT command successful.");
+	if(msocket_write(connfd, response, strlen(response))==-1) {
+		return -1;
+	}
+
+	sprintf(addr, "%d.%d.%d.%d", parse[0], parse[1], parse[2], parse[3]);
+	port = parse[4]*256+parse[5];
+
+	cdebug(addr);
+	idebug(port);
+
+	if ((*pdatafd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)) == -1) {
+		printf("Error socket(): %s(%d)\n", strerror(errno), errno);
+		*pdatafd = -1;
+		return -1;
+	}
+
+	memset(paddr, 0, sizeof(*paddr));
+	paddr->sin_family = AF_INET;
+	paddr->sin_port = port;
+	if (inet_pton(AF_INET, addr, &(paddr->sin_addr)) <= 0) {
+		printf("Error inet_pton(): %s(%d)\n", strerror(errno), errno);
+		return -1;
+	}
+
+	cdebug("Trying to connect...");
+	if (connect(*pdatafd, (struct sockaddr*)paddr, sizeof(*paddr)) < 0) {
+		printf("Error connect(): %s(%d)\n", strerror(errno), errno);
+		*pdatafd = -1;
+		return 0;
+	}
+	cdebug("Successfully connected.");
+	return 0;
+}
+
+int retr_handler_file_err(int connfd, int datafd) {
+	char response[1024];
+	memset(response, '\0', sizeof(response));
+	int len = prepare_response_oneline(response, 451, 1, "Trouble reading the file.");
+	if(msocket_write(connfd, response, strlen(response))==-1) {
+		return -1;
+	}
+	close(datafd);
+	return 0;
+}
+
+int retr_handler_common_file(int connfd, int datafd, FILE* pfile, long fsize) {
+	unsigned char* data_buffer = (unsigned char*)malloc(sizeof(unsigned char)*fsize);
+	if(data_buffer==NULL) {
+		return retr_handler_file_err(connfd, datafd);
+	}
+	size_t result = fread(data_buffer, 1, fsize, pfile);
+	fclose(pfile);
+	if(result!=fsize) {
+		return retr_handler_file_err(connfd, datafd);
+	}
+	idebug(strlen(data_buffer));
+	if(msocket_write(datafd, data_buffer, strlen(data_buffer))==-1) {
+		char response[1024];
+		memset(response, '\0', sizeof(response));
+		int len = prepare_response_oneline(response, 426, 1, "Data transfer connection broken.");
+		if(msocket_write(connfd, response, strlen(response))==-1) {
+			free(data_buffer);
+			return -1;
+		}
+	}
+	free(data_buffer);
+	return 0;
+}
+
+int retr_handler(int connfd, char* buffer, int datafd, char* cwd) {
+	if(strlen(buffer)<7) {
+		return request_not_support_handler(connfd);
+	}
+	char filename[1024];
+	char response[1024];
+	memset(filename, '\0', sizeof(filename));
+	memset(response, '\0', sizeof(response));
+	int len = prepare_response_oneline(response, 150, 1, "RETR command confirmed. Trying to send data.");
+	if(msocket_write(connfd, response, strlen(response))==-1) {
+		return -1;
+	}
+	memset(response, '\0', sizeof(response));
+	if(datafd<0) {
+		int len = prepare_response_oneline(response, 425, 1, "No TCP connection was established.");
+		if(msocket_write(connfd, response, strlen(response))==-1) {
+			return -1;
+		}
+	}
+	strcpy(filename, cwd);
+	int non_sliash = 5;
+	for(non_sliash=5;non_sliash<strlen(buffer);++non_sliash) {
+		if(buffer[non_sliash]!='/') {
+			break;
+		}
+	}
+	filename[strlen(filename)]='/';
+	strncpy(filename+strlen(filename), buffer+non_sliash, strlen(buffer)-non_sliash-1);
+
+	FILE* pfile = fopen(filename, "rb");
+	if(pfile==NULL) {
+		return retr_handler_file_err(connfd, datafd);
+	}
+	fseek(pfile, 0, SEEK_END);
+	long fsize = ftell(pfile);
+	rewind(pfile);
+	if(retr_handler_common_file(connfd, datafd, pfile, fsize)==-1) {
+		return -1;
+	}
+	memset(response, '\0', sizeof(response));
+	len = prepare_response_oneline(response, 226, 1, "Finish sending data.");
+	if(msocket_write(connfd, response, strlen(response))==-1) {
+		return -1;
+	}
+	close(datafd);
+	return 0;
+}
+
+int pasv_handler(int connfd, char* buffer) {
+	if(strlen(buffer)>5) {
+		return request_not_support_handler(connfd);
+	}
+	char response[1024];
+	memset(response, '\0', sizeof(response));
+	//TODO: consider how to avoid blocking
+	return 0;
+}
+
+int quit_handler(int connfd, char* buffer) {
+	if(strlen(buffer)>5) {
+		return request_not_support_handler(connfd);
+	}
+	char response[1024];
+	memset(response, '\0', sizeof(response));
+	int len = prepare_response_oneline(response, 221, 1, "Bye.");
+	if(msocket_write(connfd, response, strlen(response))==-1) {
+		return -1;
+	}
+	return 0;
+}
+
+int pwd_handler(int connfd, char* buffer, char* cwd) {
+	if(strlen(buffer)>4) {
+		return request_not_support_handler(connfd);
+	}
+	char response[1024];
+	memset(response, '\0', sizeof(response));
+	char path[1024];
+	memset(path, '\0', sizeof(path));
+	sprintf(path, "\"%s\" ", cwd);
+	int len = prepare_response_oneline(response, 257, 1, path);
+	if(msocket_write(connfd, response, strlen(response))==-1) {
+		return -1;
+	}
+	return 0;
 }
 
 int main(int argc, char** argv) {
@@ -256,6 +520,15 @@ int main(int argc, char** argv) {
 	struct sockaddr_in addr;
 	int len;
 	char buffer[MAX_BUFFER_LEN];
+	int datafd = -1;
+	struct sockaddr_in data_addr;
+	char cwd[1024];
+	memset(cwd, '\0', sizeof(cwd));
+	strcpy(cwd, root);
+	// int cwd_len = strlen(cwd);
+	// if(cwd[cwd_len-1]!='/') {
+	// 	cwd[cwd_len]='/';
+	// }
 
 	if((listenfd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)) == -1) {
 		printf("Error socket(): %s(%d)\n", strerror(errno), errno);
@@ -288,6 +561,7 @@ int main(int argc, char** argv) {
 	}
 
 	while(1) {
+		int is_quit=0;
 		memset(buffer, '\0', MAX_BUFFER_LEN);
 		if((len=msocket_read(connfd, buffer, MAX_BUFFER_LEN-1))==-1) {
 			return -1;
@@ -306,11 +580,52 @@ int main(int argc, char** argv) {
 					return -1;
 				}
 				break;
+			case 3:
+				if(syst_handler(connfd, buffer)==-1) {
+					return -1;
+				}
+				break;
+			case 4:
+				if(type_handler(connfd, buffer)==-1) {
+					return -1;
+				}
+				break;
+			case 5:
+				if(port_handler(connfd, buffer, &datafd, &data_addr)==-1) {
+					return -1;
+				}
+				break;
+			case 6:
+				if(retr_handler(connfd, buffer, datafd, cwd)==-1) {
+					return -1;
+				}
+				datafd = -1;
+				break;
+			case 7:
+				if(pasv_handler(connfd, buffer)==-1) {
+					return -1;
+				}
+				break;
+			case 8:
+				if(quit_handler(connfd, buffer)==-1) {
+					return -1;
+				}
+				is_quit=1;
+				break;
+			case 11:
+				if(pwd_handler(connfd, buffer, cwd)==-1) {
+					return -1;
+				}
+				break;
 			default:
 				if(request_not_support_handler(connfd)==-1) {
 					return -1;
 				}
 		}
+		if(is_quit) {break;}
 	}
+	close(connfd);
+	close(listenfd);
+	free(root);
 	return 0;
 }
