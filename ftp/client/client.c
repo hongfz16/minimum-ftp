@@ -8,6 +8,7 @@
 #include <string.h>
 #include <memory.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 #define BUFFER_SIZE 8192
 
@@ -131,17 +132,32 @@ int main(int argc, char **argv) {
 			fclose(pfile);
 			cdebug("Save to retr.txt.");
 		}
+		if(c[0]=='s') {
+			memset(sentence, '\0', sizeof(sentence));
+			sprintf(sentence, "STOR fromclient.txt\r\n");
+			if(msocket_write(sockfd, sentence, strlen(sentence))==-1) {
+				return -1;
+			}
+			FILE *pfile = fopen("retr.txt", "rb");
+			fseek(pfile, 0, SEEK_END);
+			long fsize = ftell(pfile);
+			rewind(pfile);
+			unsigned char* data_buffer = (unsigned char*)malloc(sizeof(unsigned char)*fsize);
+			size_t result = fread(data_buffer, 1, fsize, pfile);
+			fclose(pfile);
+			msocket_write(datafd, data_buffer, strlen(data_buffer));
+		}
 		if(c[0]=='w') {
 			fgets(sentence, 4096, stdin);
 			len = strlen(sentence);
+			sentence[len-1] = '\r';
 			sentence[len] = '\n';
-			sentence[len+1] = '\0';
-			if(msocket_write(sockfd, sentence, len)==-1) {
+			if(msocket_write(sockfd, sentence, len+1)==-1) {
 				return -1;
 			}
 		}
 		if(c[0]=='p') {
-			sprintf(sentence, "PORT 127,0,0,1,31,68\n");
+			sprintf(sentence, "PORT 127,0,0,1,31,68\r\n");
 			if(msocket_write(sockfd, sentence, strlen(sentence))==-1) {
 				return -1;
 			}
