@@ -17,6 +17,9 @@ int msocket_read(int connfd, char* buffer, int buffer_len) {
 	while (1) {
 		int n = read(connfd, buffer + p, buffer_len - p);
 		if (n < 0) {
+			if(errno==EWOULDBLOCK) {
+				return 0;
+			}
 			printf("Error read(): %s(%d)\n", strerror(errno), errno);
 			close(connfd);
 			return -1;
@@ -40,8 +43,8 @@ int msocket_read_file(int connfd, char* buffer, int buffer_len) {
 	int p = 0;
 	while (1) {
 		int n = read(connfd, buffer + p, buffer_len - p);
-		idebug(n);
 		cdebug(buffer);
+		idebug(n);
 		if (n < 0) {
 			printf("Error read(): %s(%d)\n", strerror(errno), errno);
 			close(connfd);
@@ -108,4 +111,83 @@ int prepare_response(char* buffer, int code, char** contents, int line_num) {
 		offset += 2;
 	}
 	return strlen(buffer);
+}
+
+int make_socket_non_blocking(int fd) {
+	int flags;
+	if((flags = fcntl(fd, F_GETFL))==-1) {
+		printf("Error fcntl(): Could not get flags on TCP socket\n");
+		return -1;
+	}
+
+	if(fcntl(fd, F_SETFL, flags | O_NONBLOCK)==-1) {
+		printf("Error fcntl(): Could not set TCP socket to be non-blocking\n");
+		return -1;
+	}
+	return 0;
+}
+
+int create_non_blocking_listen_socket(int port, int max_backlog) {
+	int listenfd;
+	struct sockaddr_in addr;
+	int flags;
+
+	if((listenfd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)) == -1) {
+		printf("Error socket(): %s(%d)\n", strerror(errno), errno);
+		return -1;
+	}
+
+	if((flags = fcntl(listenfd, F_GETFL))==-1) {
+		printf("Error fcntl(): Could not get flags on TCP listening socket\n");
+		return -1;
+	}
+
+	if(fcntl(listenfd, F_SETFL, flags | O_NONBLOCK)==-1) {
+		printf("Error fcntl(): Could not set TCP listening socket to be non-blocking\n");
+		return -1;
+	}
+
+	memset(&addr, 0, sizeof(addr));
+	addr.sin_family = AF_INET;
+	addr.sin_port = htons(port);
+	addr.sin_addr.s_addr = htonl(INADDR_ANY);
+
+	if (bind(listenfd, (struct sockaddr*)&addr, sizeof(addr)) == -1) {
+		printf("Error bind(): %s(%d)\n", strerror(errno), errno);
+		return -1;
+	}
+
+	if (listen(listenfd, max_backlog) == -1) {
+		printf("Error listen(): %s(%d)\n", strerror(errno), errno);
+		return -1;
+	}
+
+	return listenfd;
+}
+
+int create_blocking_listen_socket(int port, int max_backlog) {
+	int listenfd;
+	struct sockaddr_in addr;
+
+	if ((listenfd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)) == -1) {
+		printf("Error socket(): %s(%d)\n", strerror(errno), errno);
+		return -1;
+	}
+
+	memset(&addr, 0, sizeof(addr));
+	addr.sin_family = AF_INET;
+	addr.sin_port = htons(port);
+	addr.sin_addr.s_addr = htonl(INADDR_ANY);
+
+	if (bind(listenfd, (struct sockaddr*)&addr, sizeof(addr)) == -1) {
+		printf("Error bind(): %s(%d)\n", strerror(errno), errno);
+		return -1;
+	}
+
+	if (listen(listenfd, max_backlog) == -1) {
+		printf("Error listen(): %s(%d)\n", strerror(errno), errno);
+		return -1;
+	}
+
+	return listenfd;
 }

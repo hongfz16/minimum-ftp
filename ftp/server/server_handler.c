@@ -100,7 +100,7 @@ int type_handler(int connfd, char* buffer) {
 	}
 }
 
-int port_handler(int connfd, char* buffer, int* pdatafd, struct sockaddr_in* paddr) {
+int port_handler(int connfd, char* buffer, int* pdatafd, struct sockaddr_in* paddr, int* pdatalistenfd) {
 	if(strlen(buffer)<7) {
 		return request_not_support_handler(connfd);
 	}
@@ -148,6 +148,10 @@ int port_handler(int connfd, char* buffer, int* pdatafd, struct sockaddr_in* pad
 	if(*pdatafd>0) {
 		close(*pdatafd);
 	}
+	if(*pdatalistenfd>0) {
+		close(*pdatalistenfd);
+		*pdatalistenfd=-1;
+	}
 
 	int len = prepare_response_oneline(response, 200, 1, "PORT command successful.");
 	if(msocket_write(connfd, response, strlen(response))==-1) {
@@ -168,7 +172,7 @@ int port_handler(int connfd, char* buffer, int* pdatafd, struct sockaddr_in* pad
 
 	memset(paddr, 0, sizeof(*paddr));
 	paddr->sin_family = AF_INET;
-	paddr->sin_port = port;
+	paddr->sin_port = htons(port);
 	if (inet_pton(AF_INET, addr, &(paddr->sin_addr)) <= 0) {
 		printf("Error inet_pton(): %s(%d)\n", strerror(errno), errno);
 		return -1;
@@ -205,8 +209,8 @@ int retr_handler_common_file(int connfd, int datafd, FILE* pfile, long fsize) {
 	if(result!=fsize) {
 		return retr_handler_file_err(connfd, datafd);
 	}
-	idebug(strlen(data_buffer));
-	if(msocket_write(datafd, data_buffer, strlen(data_buffer))==-1) {
+	idebug(fsize);
+	if(msocket_write(datafd, data_buffer, fsize)==-1) {
 		char response[1024];
 		memset(response, '\0', sizeof(response));
 		int len = prepare_response_oneline(response, 426, 1, "Data transfer connection broken.");
@@ -271,13 +275,40 @@ int retr_handler(int connfd, char* buffer, int datafd, char* cwd, char* root) {
 	return 0;
 }
 
-int pasv_handler(int connfd, char* buffer) {
+int pasv_handler(int connfd, char* buffer, int* host_ip, int* pdatafd, int* pdatalistenfd) {
 	if(strlen(buffer)>5) {
 		return request_not_support_handler(connfd);
+	}
+
+	if(*pdatafd>0) {
+		close(*pdatafd);
+		*pdatafd=-1;
+	}
+	if(*pdatalistenfd>0) {
+		close(*pdatalistenfd);
+		*pdatalistenfd=-1;
 	}
 	char response[1024];
 	memset(response, '\0', sizeof(response));
 	//TODO: consider how to avoid blocking
+	int listenfd;
+	int port = 8001;
+	while(1) {
+		*pdatalistenfd = create_non_blocking_listen_socket(port, 10);
+		if(*pdatalistenfd!=-1) {
+			break;
+		} else {
+			port += 1;
+		}
+	}
+	sprintf(response, "227 =%d,%d,%d,%d,%d,%d\r\n", host_ip[0], host_ip[1], host_ip[2], host_ip[3], port/256, port%256);
+	if(msocket_write(connfd, response, strlen(response))==-1) {
+		return -1;
+	}
+	// if ((*pdatafd = accept(listenfd, NULL, NULL)) == -1) {
+	// 	printf("Error accept(): %s(%d)\n", strerror(errno), errno);
+	// 	return 0;
+	// }
 	return 0;
 }
 
@@ -597,8 +628,9 @@ int stor_handler(int connfd, char* buffer, int datafd, char* cwd, char* root) {
 	}
 	memset(response, '\0', sizeof(response));
 	unsigned char data_buffer[2048];
+	memset(data_buffer, '\0', sizeof(data_buffer));
 	int datalen = 0;
-	if((datalen=msocket_read(datafd, data_buffer, 2048))==-1) {
+	if((datalen=msocket_read_file(datafd, data_buffer, 2048))==-1) {
 		len = prepare_response_oneline(response, 426, 1, "Connection broken.");
 		if(msocket_write(connfd, response, strlen(response))==-1) {
 			close(datafd);

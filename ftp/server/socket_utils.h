@@ -6,6 +6,8 @@
 #include <arpa/inet.h>
 #include <fcntl.h>
 
+#include <pthread.h>
+
 #include <unistd.h>
 #include <errno.h>
 #include <dirent.h>
@@ -32,5 +34,11 @@ int msocket_write(int connfd, char* buffer, int len);
 int prepare_response_oneline(char* buffer, int code, int last_line, char* content);
 
 int prepare_response(char* buffer, int code, char** contents, int line_num);
+
+int create_non_blocking_listen_socket(int port, int max_backlog);
+
+int create_blocking_listen_socket(int port, int max_backlog);
+
+int make_socket_non_blocking(int fd);
 
 #endif

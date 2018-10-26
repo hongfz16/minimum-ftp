@@ -2,6 +2,8 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
+#include <fcntl.h>
+
 #include <unistd.h>
 #include <errno.h>
 
@@ -88,25 +90,44 @@ int main(int argc, char **argv) {
 	int len;
 	int p;
 
+	int flags;
+
 	//创建socket
 	if ((sockfd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)) == -1) {
 		printf("Error socket(): %s(%d)\n", strerror(errno), errno);
 		return 1;
 	}
 
-	//设置目标主机的ip和port
+	if((flags = fcntl(sockfd, F_GETFL))==-1) {
+		printf("Error fcntl(): Could not get flags on TCP listening socket\n");
+		return -1;
+	}
+
+	if(fcntl(sockfd, F_SETFL, flags | O_NONBLOCK)==-1) {
+		printf("Error fcntl(): Could not set TCP listening socket to be non-blocking\n");
+		return -1;
+	}
+
 	memset(&addr, 0, sizeof(addr));
 	addr.sin_family = AF_INET;
-	addr.sin_port = 8000;
-	if (inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr) <= 0) {			//转换ip地址:点分十进制-->二进制
+	addr.sin_port = htons(8000);
+	if (inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr) <= 0) {
 		printf("Error inet_pton(): %s(%d)\n", strerror(errno), errno);
 		return 1;
 	}
 
-	//连接上目标主机（将socket和目标主机连接）-- 阻塞函数
-	if (connect(sockfd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
-		printf("Error connect(): %s(%d)\n", strerror(errno), errno);
-		return 1;
+	while(1) {
+		if (connect(sockfd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+			if(errno == EINPROGRESS) {
+				// cdebug("No pendding TCP connection. Sleeping for one second.");
+				sleep(0.1);
+				continue;
+			} else {
+				printf("Error accept(): %s(%d)\n", strerror(errno), errno);
+				return -1;
+			}
+		}
+		break;
 	}
 
 	int listenfd, datafd;
@@ -157,7 +178,7 @@ int main(int argc, char **argv) {
 			}
 		}
 		if(c[0]=='p') {
-			sprintf(sentence, "PORT 127,0,0,1,31,68\r\n");
+			sprintf(sentence, "PORT 127,0,0,1,31,67\r\n");
 			if(msocket_write(sockfd, sentence, strlen(sentence))==-1) {
 				return -1;
 			}
@@ -168,7 +189,7 @@ int main(int argc, char **argv) {
 
 			memset(&data_addr, 0, sizeof(data_addr));
 			data_addr.sin_family = AF_INET;
-			data_addr.sin_port = 8004;
+			data_addr.sin_port = htons(8003);
 			data_addr.sin_addr.s_addr = htonl(INADDR_ANY);
 
 			if (bind(listenfd, (struct sockaddr*)&data_addr, sizeof(data_addr)) == -1) {
@@ -188,9 +209,36 @@ int main(int argc, char **argv) {
 			}
 			cdebug("Successfully connected.");
 		}
+		if(c[0]=='v') {
+			int port = 0;
+			scanf("%d", &port);
+			if ((datafd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)) == -1) {
+				printf("Error socket(): %s(%d)\n", strerror(errno), errno);
+				return 1;
+			}
+			memset(&data_addr, 0, sizeof(data_addr));
+			data_addr.sin_family = AF_INET;
+			data_addr.sin_port = htons(port);
+			if (inet_pton(AF_INET, "127.0.0.1", &data_addr.sin_addr) <= 0) {
+				printf("Error inet_pton(): %s(%d)\n", strerror(errno), errno);
+				return 1;
+			}
+			cdebug("Trying to connect.");
+			if (connect(datafd, (struct sockaddr*)&data_addr, sizeof(data_addr)) < 0) {
+				printf("Error connect: %s(%d)\n", strerror(errno), errno);
+				return -1;
+			}
+			cdebug("Successfully connected.");
+		}
 		if(c[0]=='k') {
-			close(datafd);
-			close(listenfd);
+			if(datafd>0) {
+				close(datafd);
+				datafd=-1;
+			}
+			if(listenfd>0) {
+				close(listenfd);
+				listenfd=-1;
+			}
 			cdebug("Close all the ports.");
 		}
 	}
