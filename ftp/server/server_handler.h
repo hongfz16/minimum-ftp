@@ -22,7 +22,7 @@ int request_not_support_handler(int connfd);
 
 int user_handler(int connfd, char* buffer);
 
-int pass_handler(int connfd, char* buffer);
+int pass_handler(int connfd, char* buffer, int* login_flag);
 
 int syst_handler(int connfd, char* buffer);
 
@@ -38,7 +38,7 @@ int retr_handler(int connfd, char* buffer, int datafd, char* cwd, char* root);
 
 int pasv_handler(int connfd, char* buffer, int* host_ip, int* pdatafd, int* pdatalistenfd);
 
-int quit_handler(int connfd, char* buffer);
+int quit_handler(int connfd, char* buffer, int* quit_flag);
 
 int pwd_handler(int connfd, char* buffer, char* cwd, char* root);
 
@@ -51,5 +51,11 @@ int rmd_handler(int connfd, char* buffer, char* cwd, char* root);
 int cwd_handler(int connfd, char* buffer, char* cwd, char* root);
 
 int stor_handler(int connfd, char* buffer, int datafd, char* cwd, char* root);
+
+int login_required_handler(int connfd);
+
+int rnfr_handler(int connfd, char* buffer, char* cwd, char* root, int* rnfr_flag, char* move_file_path);
+
+int rnto_handler(int connfd, char* buffer, char* cwd, char* ftp_root, int* rnfr_flag, char* move_file_path);
 
 #endif

@@ -199,7 +199,7 @@ int single_change_directory(char* test_root, char* single_path) {
 	if(strcmp(single_path,".")==0) {
 		return 0;
 	}
-	if(strpbrk(single_path, "..")!=NULL) {
+	if(strstr(single_path, "..")!=NULL) {
 		if(strcmp(single_path, "..")!=0) {
 			return -1;
 		} else if(strcmp(test_root, "/")==0) {

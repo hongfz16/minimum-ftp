@@ -38,7 +38,7 @@ int user_handler(int connfd, char* buffer) {
 	return 0;
 }
 
-int pass_handler(int connfd, char* buffer) {
+int pass_handler(int connfd, char* buffer, int* login_flag) {
 	if(strlen(buffer)<7) {
 		return request_not_support_handler(connfd);
 	}
@@ -64,6 +64,7 @@ int pass_handler(int connfd, char* buffer) {
 	for(i=0;i<3;++i) {
 		free(contents[i]);
 	}
+	*login_flag = 1;
 	return 0;
 }
 
@@ -312,7 +313,7 @@ int pasv_handler(int connfd, char* buffer, int* host_ip, int* pdatafd, int* pdat
 	return 0;
 }
 
-int quit_handler(int connfd, char* buffer) {
+int quit_handler(int connfd, char* buffer, int* quit_flag) {
 	if(strlen(buffer)>5) {
 		return request_not_support_handler(connfd);
 	}
@@ -322,6 +323,7 @@ int quit_handler(int connfd, char* buffer) {
 	if(msocket_write(connfd, response, strlen(response))==-1) {
 		return -1;
 	}
+	*quit_flag=1;
 	return 0;
 }
 
@@ -406,7 +408,7 @@ int mkd_handler(int connfd, char* buffer, char* cwd, char* root) {
 	if(strlen(buffer)<6) {
 		return request_not_support_handler(connfd);
 	}
-	if(strpbrk(buffer, ".")!=NULL) {
+	if(strstr(buffer, ".")!=NULL) {
 		return request_not_support_handler(connfd);
 	}
 	if(buffer[4]=='/') {
@@ -541,7 +543,7 @@ int cwd_handler(int connfd, char* buffer, char* cwd, char* root) {
 		}
 		return 0;
 	}
-	if(strcmp(parameter, "..")!=0 && strpbrk(parameter, "..")!=NULL) {
+	if(strcmp(parameter, "..")!=0 && strstr(parameter, "..")!=NULL) {
 		return request_not_support_handler(connfd);
 	}
 	if(strcmp(root, "/")==0 && strcmp(parameter, "..")==0) {
@@ -668,5 +670,182 @@ int stor_handler(int connfd, char* buffer, int datafd, char* cwd, char* root) {
 	}
 	fclose(pfile);
 	close(datafd);
+	return 0;
+}
+
+int login_required_handler(int connfd) {
+	char response[1024];
+	memset(response, '\0', sizeof(response));
+	int len = prepare_response_oneline(response, 530, 1, "Please login first.");
+	if(msocket_write(connfd, response, strlen(response))==-1) {
+		return -1;
+	}
+	return 0;
+}
+
+int rnfr_handler(int connfd, char* buffer, char* cwd, char* root, int* rnfr_flag, char* move_file_path) {
+	char test_root[1024];
+	memset(test_root, '\0', sizeof(test_root));
+	char response[1024];
+	memset(response, '\0', sizeof(response));
+	char path[1024];
+	memset(path, '\0', sizeof(path));
+	int i=4;
+	for(;i<strlen(buffer);++i) {
+		if(buffer[i]!=' ') {
+			break;
+		}
+	}
+	strcpy(path, buffer+i);
+	path[strlen(path)-1]='\0';
+	if(change_directory(root, path, test_root)==-1) {
+		int len = prepare_response_oneline(response, 450, 1, "Illegal file path");
+		if(msocket_write(connfd, response, strlen(response))==-1) {
+			return -1;
+		}
+		return 1;
+	}
+	char filepath[1024];
+	memset(filepath, '\0', sizeof(filepath));
+	strcpy(filepath, cwd);
+	strcat(filepath, test_root);
+	FILE* pfile;
+	pfile = fopen(filepath, "rb");
+	if(pfile==NULL) {
+		int len = prepare_response_oneline(response, 450, 1, "No such file.");
+		if(msocket_write(connfd, response, strlen(response))==-1) {
+			return -1;
+		}
+		return 1;
+	}
+	fclose(pfile);
+	int len = prepare_response_oneline(response, 350, 1, "Ready to rename the file.");
+	if(msocket_write(connfd, response, strlen(response))==-1) {
+		return -1;
+	}
+	strcpy(move_file_path, filepath);
+	*rnfr_flag = 2;
+	return 0;
+}
+
+int same_file(int fd1, int fd2) {
+	struct stat stat1, stat2;
+	if(fstat(fd1, &stat1)<0) return -1;
+	if(fstat(fd2, &stat2)<0) return -1;
+	return (stat1.st_dev == stat2.st_dev) && (stat1.st_ino == stat2.st_ino);
+}
+
+int rnto_handler(int connfd, char* buffer, char* cwd, char* root, int* rnfr_flag, char* move_file_path) {
+	char response[1024];
+	memset(response, '\0', sizeof(response));
+	if(*rnfr_flag!=1) {
+		int len = prepare_response_oneline(response, 503, 1, "RNFR command not specified.");
+		if(msocket_write(connfd, response, strlen(response))==1) {
+			return -1;
+		}
+		return 1;
+	}
+	char test_root[1024];
+	memset(test_root, '\0', sizeof(test_root));
+	char path[1024];
+	memset(path, '\0', sizeof(path));
+	int i=4;
+	for(;i<strlen(buffer);++i) {
+		if(buffer[i]!=' ') {
+			break;
+		}
+	}
+	strcpy(path, buffer+i);
+	path[strlen(path)-1]='\0';
+	if(change_directory(root, path, test_root)==-1) {
+		int len = prepare_response_oneline(response, 450, 1, "Illegal file path");
+		if(msocket_write(connfd, response, strlen(response))==-1) {
+			return -1;
+		}
+		return 1;
+	}
+	char filepath[1024];
+	memset(filepath, '\0', sizeof(filepath));
+	strcpy(filepath, cwd);
+	strcat(filepath, test_root);
+	FILE *fromfile;
+	FILE *tofile;
+	fromfile = fopen(move_file_path, "rb");
+	tofile = fopen(filepath, "wb");
+	if(tofile==NULL || fromfile==NULL) {
+		int len = prepare_response_oneline(response, 550, 1,  "Problem renaming the file.");
+		if(msocket_write(connfd, response, strlen(response))==-1) {
+			return -1;
+		}
+		if(fromfile) {
+			fclose(fromfile);
+		}
+		if(tofile) {
+			fclose(tofile);			
+		}
+		return 1;
+	}
+
+	if(same_file(fileno(fromfile), fileno(tofile))) {
+		fclose(fromfile);
+		fclose(tofile);
+		int len = prepare_response_oneline(response, 250, 1, "Successfully rename the file.");
+		if(msocket_write(connfd, response, strlen(response))==-1) {
+			return -1;
+		}
+		return 0;
+	}
+
+	fseek(fromfile, 0, SEEK_END);
+	long fsize = ftell(fromfile);
+	rewind(fromfile);
+	unsigned char* file_buffer = (unsigned char*)malloc(sizeof(unsigned char)*fsize);
+	size_t result = fread(file_buffer, sizeof(unsigned char), fsize, fromfile);
+	if(result!=fsize) {
+		int len = prepare_response_oneline(response, 550, 1,  "Problem renaming the file.");
+		if(msocket_write(connfd, response, strlen(response))==-1) {
+			return -1;
+		}
+		if(fromfile) {
+			fclose(fromfile);
+		}
+		if(tofile) {
+			fclose(tofile);			
+		}
+		free(file_buffer);
+		return 1;
+	}
+	if(fwrite(file_buffer, sizeof(unsigned char), fsize, tofile)==-1) {
+		int len = prepare_response_oneline(response, 550, 1,  "Problem renaming the file.");
+		if(msocket_write(connfd, response, strlen(response))==-1) {
+			return -1;
+		}
+		if(fromfile) {
+			fclose(fromfile);
+		}
+		if(tofile) {
+			fclose(tofile);			
+		}
+		free(file_buffer);
+		return 1;
+	}
+	if(fromfile) {
+		fclose(fromfile);
+	}
+	if(tofile) {
+		fclose(tofile);			
+	}
+	free(file_buffer);
+	if(remove(move_file_path)==-1) {
+		int len = prepare_response_oneline(response, 550, 1,  "Problem renaming the file.");
+		if(msocket_write(connfd, response, strlen(response))==-1) {
+			return -1;
+		}
+		return 1;
+	}
+	int len = prepare_response_oneline(response, 250, 1, "Successfully rename the file.");
+	if(msocket_write(connfd, response, strlen(response))==-1) {
+		return -1;
+	}
 	return 0;
 }
