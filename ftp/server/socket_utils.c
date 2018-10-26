@@ -191,3 +191,66 @@ int create_blocking_listen_socket(int port, int max_backlog) {
 
 	return listenfd;
 }
+
+int single_change_directory(char* test_root, char* single_path) {
+	if(strlen(single_path)==0) {
+		return 0;
+	}
+	if(strcmp(single_path,".")==0) {
+		return 0;
+	}
+	if(strpbrk(single_path, "..")!=NULL) {
+		if(strcmp(single_path, "..")!=0) {
+			return -1;
+		} else if(strcmp(test_root, "/")==0) {
+			return -1;
+		} else {
+			int i = strlen(test_root)-1;
+			for(;i>=0;--i) {
+				if(test_root[i]!='/') {
+					test_root[i]='\0';
+				} else {
+					break;
+				}
+			}
+			if(i!=0) {
+				test_root[i]='\0';
+			}
+		}
+	} else {
+		if(strcmp(test_root, "/")!=0) {
+			strcat(test_root, "/");
+		}
+		strcat(test_root, single_path);
+	}
+	return 0;
+}
+
+int change_directory(const char* root, const char* path, char* test_root) {
+	if(path[0]=='/') {
+		int first_non_zero = 1;
+		for(;first_non_zero<strlen(path);++first_non_zero) {
+			if(path[first_non_zero]!='/') {
+				break;
+			}
+		}
+		return change_directory("/", path+first_non_zero, test_root);
+	}
+	strcpy(test_root, root);
+	char buffer[1024];
+	memset(buffer, '\0', sizeof(buffer));
+	for(int i=0;i<strlen(path);++i) {
+		if(path[i]=='/') {
+			if(single_change_directory(test_root, buffer)==-1) {
+				return -1;
+			}
+			memset(buffer, '\0', sizeof(buffer));
+		} else {
+			buffer[strlen(buffer)] = path[i];
+		}
+	}
+	if(single_change_directory(test_root, buffer)==-1) {
+		return -1;
+	}
+	return 0;
+}
