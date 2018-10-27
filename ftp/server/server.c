@@ -118,7 +118,7 @@ int unpack_message(char* buffer, int login_flag) {
 	if(strcmp(order, "STOR")==0) {
 		return_code = 16;
 	}
-	if(!login_flag && return_code>4 && return_code<100) {
+	if(!login_flag && return_code>4 && return_code<100 && return_code!=8) {
 		return_code = 101;
 	}
 	return return_code;

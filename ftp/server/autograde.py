@@ -13,7 +13,7 @@ credit = 40
 minor = 3
 major = 8
 
-mport = 8081
+mport = 8071
 
 def build():
   global credit
@@ -40,12 +40,11 @@ def create_test_file(filename):
 
 def test(port=mport, directory='/tmp'):
   global credit
-  # f = open("out.out", "w")
-  # if port == 21 and directory == '/tmp':
-  #   server = subprocess.Popen('./server', stdout=subprocess.PIPE)
-  # else:
-  #   server = subprocess.Popen(['sudo ./server', '-port', '%d' % port, '-root', directory], stdout=f)
-  # time.sleep(0.1)
+  if port == 21 and directory == '/tmp':
+    server = subprocess.Popen('./server', stdout=subprocess.PIPE)
+  else:
+    server = subprocess.Popen(['./server', '-port', '%d' % port, '-root', directory], stdout=subprocess.PIPE)
+  time.sleep(0.1)
   try:
     ftp = FTP()
     # connect
@@ -98,19 +97,21 @@ def test(port=mport, directory='/tmp'):
   except Exception as e:
     print 'Exception occurred:', e
     credit = 0
-  # server.kill()
+  server.kill()
 
-# build()
+build()
 # Test 1
 test()
+print 'Finish test1'
+print 'Your credit is %d' % credit
 # Test 2
-# port = random.randint(2000, 3000)
-# directory = ''.join(random.choice(string.ascii_letters) for x in xrange(10))
-# if os.path.isdir(directory):
-#   shutil.rmtree(directory)
-# os.mkdir(directory)
-# test(port, directory)
-# shutil.rmtree(directory)
+port = random.randint(20000, 30000)
+directory = ''.join(random.choice(string.ascii_letters) for x in xrange(10))
+if os.path.isdir(directory):
+  shutil.rmtree(directory)
+os.mkdir(directory)
+test(port, directory)
+shutil.rmtree(directory)
 # Clean
 subprocess.Popen(['make', 'clean'], stdout=subprocess.PIPE)
 # Result
