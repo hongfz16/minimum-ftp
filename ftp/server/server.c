@@ -19,11 +19,6 @@
 #include "socket_utils.h"
 #include "server_handler.h"
 
-#define ROOT_LENGTH 1024
-#define DEFAULT_PORT 21
-#define DEFAULT_PATH "/tmp"
-#define MAX_BACKLOG 10
-#define MAX_BUFFER_LEN 10086
 
 int parse_port(int default_port, int argc, char** argv) {
 	int i = 0;
@@ -51,13 +46,13 @@ int parse_root(char* root, int argc, char** argv) {
 			if(i==argc-1) {
 				return -1;
 			}
-			memset(root, '\0', sizeof(root));
+			// memset(root, '\0', sizeof(root));
 			root = strcpy(root, argv[i+1]);
 			return 0;
 		}
 	}
 	char* default_root = DEFAULT_PATH;
-	memset(root, '\0', sizeof(root));
+	// memset(root, '\0', sizeof(root));
 	root = strcpy(root, default_root);
 	return 0;
 }
@@ -320,10 +315,13 @@ void* start_one_ftp_worker(void *pftp_thread_struct) {
 		datalistenfd = -1;
 	}
 	close(connfd);
+	*returnvalue=0;
+	return (void*)returnvalue;
 }
 
 int main(int argc, char** argv) {
 	char* root = (char*)malloc(ROOT_LENGTH);
+	memset(root, '\0', ROOT_LENGTH);
 	int port = 21;
 	if((port = parse_port(DEFAULT_PORT, argc, argv))==-1) {
 		printf("Error parse_port(): Please specify the port you want to listen to after -port flag!\n");
@@ -356,7 +354,7 @@ int main(int argc, char** argv) {
 		if ((connfd = accept(listenfd, NULL, NULL)) == -1) {
 			if(errno == EWOULDBLOCK) {
 				// cdebug("No pendding TCP connection. Sleeping for one second.");
-				sleep(0.01);
+				// sleep(0.01);
 				continue;
 			} else {
 				printf("Error accept(): %s(%d)\n", strerror(errno), errno);

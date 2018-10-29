@@ -17,6 +17,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#define ROOT_LENGTH 1024
+#define DEFAULT_PORT 21
+#define DEFAULT_PATH "/tmp"
+#define MAX_BACKLOG 10
+#define MAX_BUFFER_LEN 10086
 
 int request_not_support_handler(int connfd);
 

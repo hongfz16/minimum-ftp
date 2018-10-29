@@ -8,6 +8,7 @@ int request_not_support_handler(int connfd) {
 	if(msocket_write(connfd, response, strlen(response))==-1) {
 		return -1;
 	}
+	return 0;
 }
 
 int user_handler(int connfd, char* buffer) {
@@ -201,7 +202,7 @@ int retr_handler_file_err(int connfd, int datafd) {
 }
 
 int retr_handler_common_file(int connfd, int datafd, FILE* pfile, long fsize) {
-	unsigned char* data_buffer = (unsigned char*)malloc(sizeof(unsigned char)*fsize);
+	char* data_buffer = (char*)malloc(sizeof(char)*fsize);
 	if(data_buffer==NULL) {
 		return retr_handler_file_err(connfd, datafd);
 	}
@@ -513,7 +514,7 @@ int cwd_handler(int connfd, char* buffer, char* cwd, char* root) {
 		} else if(code==1) {
 			return 1;
 		} else if(code==0) {
-			memset(root, '\0', sizeof(root));
+			memset(root, '\0', ROOT_LENGTH);
 			strcpy(root, modi_root);
 			return 0;
 		}
@@ -588,7 +589,7 @@ int cwd_handler(int connfd, char* buffer, char* cwd, char* root) {
 	struct dirent * dir;
 	d = opendir(test_path);
 	if(d) {
-		memset(root, '\0', sizeof(root));
+		memset(root, '\0', ROOT_LENGTH);
 		strcpy(root, test_root);
 		int len = prepare_response_oneline(response, 250, 1, "Okay.");
 		if(msocket_write(connfd, response, strlen(response))==-1) {
@@ -629,10 +630,10 @@ int stor_handler(int connfd, char* buffer, int datafd, char* cwd, char* root) {
 		return -1;
 	}
 	memset(response, '\0', sizeof(response));
-	unsigned char data_buffer[2048];
+	char data_buffer[2048];
 	memset(data_buffer, '\0', sizeof(data_buffer));
 	int datalen = 0;
-	if((datalen=msocket_read_file(datafd, data_buffer, 2048))==-1) {
+	if((datalen=msocket_read_file(datafd, data_buffer, 204800))==-1) {
 		len = prepare_response_oneline(response, 426, 1, "Connection broken.");
 		if(msocket_write(connfd, response, strlen(response))==-1) {
 			close(datafd);

@@ -13,7 +13,7 @@ credit = 40
 minor = 3
 major = 8
 
-mport = 8071
+mport = 8080
 
 def build():
   global credit
@@ -39,6 +39,7 @@ def create_test_file(filename):
   f.close()
 
 def test(port=mport, directory='/tmp'):
+  # f = open('out.txt', 'w')
   global credit
   if port == 21 and directory == '/tmp':
     server = subprocess.Popen('./server', stdout=subprocess.PIPE)
