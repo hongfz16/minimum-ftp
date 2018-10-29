@@ -5,7 +5,7 @@ deps = socket_utils.h server_handler.h
 obj = server.o socket_utils.o server_handler.o
 
 all: $(prog)
-	./server -port 8000 -root /home/hongfz/Documents/ftp_lab/minimum-ftp/ftp/server/server_root -host 127.0.0.1
+	./server -port 8000 -root /Users/hongfz/Documents/Codes -host 127.0.0.1
 
 $(prog): $(obj)
 	$(CC) -o $(prog) $(obj) $(CC_FLAG)

@@ -233,13 +233,9 @@ int retr_handler(int connfd, char* buffer, int datafd, char* cwd, char* root) {
 		return request_not_support_handler(connfd);
 	}
 	char filename[1024];
-	char response[1024];
 	memset(filename, '\0', sizeof(filename));
-	memset(response, '\0', sizeof(response));
-	int len = prepare_response_oneline(response, 150, 1, "RETR command confirmed. Trying to send data.");
-	if(msocket_write(connfd, response, strlen(response))==-1) {
-		return -1;
-	}
+	
+	char response[1024];
 	memset(response, '\0', sizeof(response));
 	if(datafd<0) {
 		int len = prepare_response_oneline(response, 425, 1, "No TCP connection was established.");
@@ -247,16 +243,29 @@ int retr_handler(int connfd, char* buffer, int datafd, char* cwd, char* root) {
 			return -1;
 		}
 	}
-	strcpy(filename, cwd);
-	strcat(filename, root);
-	int non_sliash = 5;
-	for(non_sliash=5;non_sliash<strlen(buffer);++non_sliash) {
-		if(buffer[non_sliash]!='/') {
-			break;
-		}
+
+	memset(response, '\0', sizeof(response));
+	int len = prepare_response_oneline(response, 150, 1, "RETR command confirmed. Trying to send data.");
+	if(msocket_write(connfd, response, strlen(response))==-1) {
+		return -1;
 	}
-	filename[strlen(filename)]='/';
-	strncpy(filename+strlen(filename), buffer+non_sliash, strlen(buffer)-non_sliash-1);
+	strcpy(filename, cwd);
+	// strcat(filename, root);
+	// int non_sliash = 5;
+	// for(non_sliash=5;non_sliash<strlen(buffer);++non_sliash) {
+	// 	if(buffer[non_sliash]!='/') {
+	// 		break;
+	// 	}
+	// }
+	// filename[strlen(filename)]='/';
+	// strncpy(filename+strlen(filename), buffer+non_sliash, strlen(buffer)-non_sliash-1);
+
+	if(change_directory(root, buffer+5, filename+strlen(filename))==-1) {
+		return retr_handler_file_err(connfd, datafd);
+	}
+
+	// filename[strlen(filename)-1]='\0';
+	cdebug(filename);
 
 	FILE* pfile = fopen(filename, "rb");
 	if(pfile==NULL) {
@@ -353,18 +362,21 @@ int list_handler(int connfd, char* buffer, int datafd, char* cwd, char* root) {
 	}
 	char response[1024];
 	memset(response, '\0', sizeof(response));
-	int len = prepare_response_oneline(response, 150, 1, "LIST command confirmed; Trying to send data.");
-	if(msocket_write(connfd, response, strlen(response))==-1) {
-		return -1;
-	}
-	memset(response, '\0', sizeof(response));
 	if(datafd<0) {
-		len = prepare_response_oneline(response, 425, 1, "No TCP connection was established.");
+		int len = prepare_response_oneline(response, 425, 1, "No TCP connection was established.");
 		if(msocket_write(connfd, response, strlen(response))==-1) {
 			return -1;
 		}
+		cdebug("datafd<0");
 		return 0;
 	}
+	memset(response, '\0', sizeof(response));
+	int len = prepare_response_oneline(response, 150, 1, "LIST command confirmed; Trying to send data.");
+	if(msocket_write(connfd, response, strlen(response))==-1) {
+		cdebug("150 error.");
+		return -1;
+	}
+	
 	DIR* d;
 	struct dirent * dir;
 	char dirname[1024];
@@ -384,6 +396,7 @@ int list_handler(int connfd, char* buffer, int datafd, char* cwd, char* root) {
 			strcat(data_buffer, "\r\n");
 		}
 		closedir(d);
+		// cdebug(data_buffer);
 		if(msocket_write(datafd, data_buffer, strlen(data_buffer))==-1) {
 			len = prepare_response_oneline(response, 426, 1, "TCP connection broken.");
 			if(msocket_write(connfd, response, strlen(response))==-1) {
@@ -409,32 +422,39 @@ int mkd_handler(int connfd, char* buffer, char* cwd, char* root) {
 	if(strlen(buffer)<6) {
 		return request_not_support_handler(connfd);
 	}
-	if(strstr(buffer, ".")!=NULL) {
-		return request_not_support_handler(connfd);
-	}
-	if(buffer[4]=='/') {
-		char modi_buffer[1024];
-		memset(modi_buffer, '\0', strlen(modi_buffer));
-		sprintf(modi_buffer, "MKD %s", buffer+5);
-		return mkd_handler(connfd, modi_buffer, cwd, "/");
-	}
+	// if(strstr(buffer, ".")!=NULL) {
+	// 	return request_not_support_handler(connfd);
+	// }
+	// if(buffer[4]=='/') {
+	// 	char modi_buffer[1024];
+	// 	memset(modi_buffer, '\0', strlen(modi_buffer));
+	// 	sprintf(modi_buffer, "MKD %s", buffer+5);
+	// 	return mkd_handler(connfd, modi_buffer, cwd, "/");
+	// }
 	char response[1024];
 	memset(response, '\0', sizeof(response));
 	char directname[1024];
 	memset(directname, '\0', sizeof(directname));
 	strcpy(directname, cwd);
-	strcat(directname, root);
-	int i=0;
-	for(i=4;i<strlen(buffer);++i) {
-		if(buffer[i]!='/') {
-			break;
+	// strcat(directname, root);
+	// int i=0;
+	// for(i=4;i<strlen(buffer);++i) {
+	// 	if(buffer[i]!='/') {
+	// 		break;
+	// 	}
+	// }
+	// if(strcmp(root, "/")!=0) {
+	// 	strcat(directname, "/");
+	// }
+	// strcat(directname, buffer+i);
+	if(change_directory(root, buffer+4, directname+strlen(directname))==-1) {
+		int len = prepare_response_oneline(response, 550, 1, "Directory creation failed.");
+		if(msocket_write(connfd, response, strlen(response))==-1) {
+			return -1;
 		}
+		return 0;
 	}
-	if(strcmp(root, "/")!=0) {
-		strcat(directname, "/");
-	}
-	strcat(directname, buffer+i);
-	directname[strlen(directname)-1] = '\0';
+	// directname[strlen(directname)-1] = '\0';
 	cdebug("Making directory in:");
 	cdebug(directname);
 	if(mkdir(directname, S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH)==-1) {
@@ -460,15 +480,22 @@ int rmd_handler(int connfd, char* buffer, char* cwd, char* root) {
 	char directname[1024];
 	memset(directname, '\0', sizeof(directname));
 	strcpy(directname, cwd);
-	strcat(directname, root);
-	int i=0;
-	for(i=4;i<strlen(buffer);++i) {
-		if(buffer[i]!='/') {
-			break;
+	// strcat(directname, root);
+	// int i=0;
+	// for(i=4;i<strlen(buffer);++i) {
+	// 	if(buffer[i]!='/') {
+	// 		break;
+	// 	}
+	// }
+	// strcat(directname, buffer+i);
+	if(change_directory(root, buffer+4, directname+strlen(directname))==-1) {
+		int len = prepare_response_oneline(response, 550, 1, "Directory remove failed.");
+		if(msocket_write(connfd, response, strlen(response))==-1) {
+			return -1;
 		}
+		return 0;
 	}
-	strcat(directname, buffer+i);
-	directname[strlen(directname)-1] = '\0';
+	// directname[strlen(directname)-1] = '\0';
 	if(rmdir(directname)==-1) {
 		int len = prepare_response_oneline(response, 550, 1, "Directory remove failed.");
 		if(msocket_write(connfd, response, strlen(response))==-1) {
@@ -491,63 +518,108 @@ int cwd_handler(int connfd, char* buffer, char* cwd, char* root) {
 	memset(response, '\0', sizeof(response));
 	char parameter[1024];
 	memset(parameter, '\0', sizeof(parameter));
-	int i = 0;
-	int parameter_count = 0;
-	if(buffer[4]=='/') {
-		for(i=5;i<strlen(buffer)-1;++i) {
-			parameter[parameter_count]=buffer[i];
-			parameter_count++;
-		}
-		if(strlen(parameter)==0) {
-			parameter[0]='.';
-		}
+	strcpy(parameter, buffer+4);
+	parameter[strlen(parameter)-1]='\0';
+	// int i = 0;
+	// int parameter_count = 0;
+	// if(buffer[4]=='/') {
+	// 	for(i=5;i<strlen(buffer)-1;++i) {
+	// 		parameter[parameter_count]=buffer[i];
+	// 		parameter_count++;
+	// 	}
+	// 	if(strlen(parameter)==0) {
+	// 		parameter[0]='.';
+	// 	}
 
-		char modi_buffer[1024];
-		memset(modi_buffer, '\0', sizeof(modi_buffer));
-		sprintf(modi_buffer, "CWD %s\n", parameter);
-		char modi_root[1024];
-		memset(modi_root, '\0', sizeof(modi_root));
-		modi_root[0]='/';
-		int code = cwd_handler(connfd, modi_buffer, cwd, modi_root);
-		if(code==-1) {
-			return -1;
-		} else if(code==1) {
-			return 1;
-		} else if(code==0) {
-			memset(root, '\0', ROOT_LENGTH);
-			strcpy(root, modi_root);
-			return 0;
-		}
-	}
-	for(i=4;i<strlen(buffer);++i) {
-		if(buffer[i]!='/') {
-			break;
-		}
-	}
-	for(;i<strlen(buffer);++i) {
-		if(buffer[i]=='\n') {
-			continue;
-		}
-		parameter[parameter_count]=buffer[i];
-		parameter_count++;
-	}
-	for(i=strlen(parameter)-1;i>=0;--i) {
-		if(parameter[i]!='/') {
-			break;
-		}
-		parameter[i]='\0';
-	}
-	if(strcmp(parameter, ".")==0) {
-		int len = prepare_response_oneline(response, 250, 1, "Okay.");
-		if(msocket_write(connfd, response, strlen(response))==-1) {
-			return -1;
-		}
-		return 0;
-	}
-	if(strcmp(parameter, "..")!=0 && strstr(parameter, "..")!=NULL) {
-		return request_not_support_handler(connfd);
-	}
-	if(strcmp(root, "/")==0 && strcmp(parameter, "..")==0) {
+	// 	char modi_buffer[1024];
+	// 	memset(modi_buffer, '\0', sizeof(modi_buffer));
+	// 	sprintf(modi_buffer, "CWD %s\n", parameter);
+	// 	char modi_root[1024];
+	// 	memset(modi_root, '\0', sizeof(modi_root));
+	// 	modi_root[0]='/';
+	// 	int code = cwd_handler(connfd, modi_buffer, cwd, modi_root);
+	// 	if(code==-1) {
+	// 		return -1;
+	// 	} else if(code==1) {
+	// 		return 1;
+	// 	} else if(code==0) {
+	// 		memset(root, '\0', ROOT_LENGTH);
+	// 		strcpy(root, modi_root);
+	// 		return 0;
+	// 	}
+	// }
+	// for(i=4;i<strlen(buffer);++i) {
+	// 	if(buffer[i]!='/') {
+	// 		break;
+	// 	}
+	// }
+	// for(;i<strlen(buffer);++i) {
+	// 	if(buffer[i]=='\n') {
+	// 		continue;
+	// 	}
+	// 	parameter[parameter_count]=buffer[i];
+	// 	parameter_count++;
+	// }
+	// for(i=strlen(parameter)-1;i>=0;--i) {
+	// 	if(parameter[i]!='/') {
+	// 		break;
+	// 	}
+	// 	parameter[i]='\0';
+	// }
+	// if(strcmp(parameter, ".")==0) {
+	// 	int len = prepare_response_oneline(response, 250, 1, "Okay.");
+	// 	if(msocket_write(connfd, response, strlen(response))==-1) {
+	// 		return -1;
+	// 	}
+	// 	return 0;
+	// }
+	// if(strcmp(parameter, "..")!=0 && strstr(parameter, "..")!=NULL) {
+	// 	return request_not_support_handler(connfd);
+	// }
+	// if(strcmp(root, "/")==0 && strcmp(parameter, "..")==0) {
+	// 	char info[1024];
+	// 	memset(info, '\0', sizeof(info));
+	// 	sprintf(info, "%s: No such file or directory.", parameter);
+	// 	int len = prepare_response_oneline(response, 550, 1, info);
+	// 	if(msocket_write(connfd, response, strlen(response))==-1) {
+	// 		return -1;
+	// 	}
+	// 	return 1;
+	// }
+	char test_root[1024];
+	memset(test_root, '\0', sizeof(test_root));
+	// strcpy(test_root, root);
+	// char test_path[1024];
+	// memset(test_path, '\0', sizeof(test_path));
+	// strcpy(test_path, cwd);
+	// if(strcmp(parameter, "..")==0) {
+	// 	int root_len = strlen(test_root);
+	// 	for(;root_len>=0;--root_len) {
+	// 		if(test_root[root_len]!='/') {
+	// 			break;
+	// 		}
+	// 		test_root[root_len]='\0';
+	// 	}
+	// 	for(;root_len>=0;--root_len) {
+	// 		if(test_root[root_len]=='/') {
+	// 			break;
+	// 		}
+	// 		test_root[root_len]='\0';
+	// 	}
+	// } else {
+	// 	if(strcmp(test_root, "/")!=0) {
+	// 		strcat(test_root, "/");
+	// 	}
+	// 	strcat(test_root, parameter);
+	// }
+	// strcat(test_path, test_root);
+	char test_path[2048];
+	memset(test_path, '\0', sizeof(test_path));
+	strcpy(test_path, cwd);
+	// printf("%s\n", test_path);
+	// printf("%s\n", root);
+	// printf("%s\n", buffer+4);
+	if(change_directory(root, buffer+4, test_root)==-1) {
 		char info[1024];
 		memset(info, '\0', sizeof(info));
 		sprintf(info, "%s: No such file or directory.", parameter);
@@ -557,34 +629,9 @@ int cwd_handler(int connfd, char* buffer, char* cwd, char* root) {
 		}
 		return 1;
 	}
-	char test_root[1024];
-	memset(test_root, '\0', sizeof(test_root));
-	strcpy(test_root, root);
-	char test_path[1024];
-	memset(test_path, '\0', sizeof(test_path));
-	strcpy(test_path, cwd);
-	if(strcmp(parameter, "..")==0) {
-		int root_len = strlen(test_root);
-		for(;root_len>=0;--root_len) {
-			if(test_root[root_len]!='/') {
-				break;
-			}
-			test_root[root_len]='\0';
-		}
-		for(;root_len>=0;--root_len) {
-			if(test_root[root_len]=='/') {
-				break;
-			}
-			test_root[root_len]='\0';
-		}
-	} else {
-		if(strcmp(test_root, "/")!=0) {
-			strcat(test_root, "/");
-		}
-		strcat(test_root, parameter);
-	}
+	// test_root[strlen(test_root)-1]='\0';
 	strcat(test_path, test_root);
-	cdebug(test_path);
+	// cdebug(test_path);
 	DIR* d;
 	struct dirent * dir;
 	d = opendir(test_path);
@@ -645,13 +692,22 @@ int stor_handler(int connfd, char* buffer, int datafd, char* cwd, char* root) {
 	char filename[1024];
 	memset(filename, '\0', sizeof(filename));
 	strcpy(filename, cwd);
-	strcat(filename, root);
-	if(strcmp(root, "/")!=0) {
-		strcat(filename, "/");
+	// strcat(filename, root);
+	// if(strcmp(root, "/")!=0) {
+	// 	strcat(filename, "/");
+	// }
+	// //TODO: take care of "/test" case
+	// strcat(filename, buffer+5);
+	if(change_directory(root, buffer + 5, filename+strlen(filename))==-1) {
+		len = prepare_response_oneline(response, 451, 1, "Problem saving the file.");
+		if(msocket_write(connfd, response, strlen(response))==-1) {
+			close(datafd);
+			return -1;
+		}
+		close(datafd);
+		return 1;
 	}
-	//TODO: take care of "/test" case
-	strcat(filename, buffer+5);
-	filename[strlen(filename)-1]='\0';
+	// filename[strlen(filename)-1]='\0';
 	FILE* pfile = fopen(filename, "wb");
 	if(fwrite(data_buffer, sizeof(char), datalen, pfile)==-1) {
 		len = prepare_response_oneline(response, 451, 1, "Problem saving the file.");

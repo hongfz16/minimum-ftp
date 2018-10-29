@@ -43,6 +43,6 @@ int make_socket_non_blocking(int fd);
 
 int single_change_directory(char* test_root, char* single_path);
 
-int change_directory(const char* root, const char* path, char* test_root);
+int change_directory(const char* root, char* path, char* test_root);
 
 #endif

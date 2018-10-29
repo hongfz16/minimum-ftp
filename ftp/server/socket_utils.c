@@ -226,7 +226,10 @@ int single_change_directory(char* test_root, char* single_path) {
 	return 0;
 }
 
-int change_directory(const char* root, const char* path, char* test_root) {
+int change_directory(const char* root, char* path, char* test_root) {
+	if(path[strlen(path)-1]=='\n') {
+		path[strlen(path)-1]='\0';
+	}
 	if(path[0]=='/') {
 		int first_non_zero = 1;
 		for(;first_non_zero<strlen(path);++first_non_zero) {

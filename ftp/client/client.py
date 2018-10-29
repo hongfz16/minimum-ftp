@@ -128,7 +128,7 @@ def passive_connect(conns):
     if code != 227:
         return -1
     res_content = re.findall(r"[0-9]{1,3},[0-9]{1,3},[0-9]{1,3},[0-9]{1,3},[0-9]{1,3},[0-9]{1,3}", res_content)[0]
-    print(res_content)
+    # print(res_content)
     addr_list = res_content.split(',')
     addr_str = '.'.join(addr_list[0:4])
     port = int(addr_list[4])*256+int(addr_list[5])
@@ -164,6 +164,10 @@ def get_handler(conns, order_content):
     datas.close()
     response = socket_read_command_str(conns)
     print_res(response)
+    code, _ = unpack_response(response)
+    if code != 226:
+        datas.close()
+        return 1
     filename = order_content.split('/')[-1]
     with open(filename, 'wb') as f:
         f.write(data_buffer)
@@ -259,10 +263,13 @@ def put_handler(conns, order_content):
     code, res_content = unpack_response(responses[-1])
     if code != 150:
         datas.close()
+        f.close()
         return 1
     if socket_send(datas, data_buffer)==-1:
+        f.close()
         datas.close()
         return -1
+    f.close()
     datas.close()
     response = socket_read_command_str(conns)
     print_res(response)
