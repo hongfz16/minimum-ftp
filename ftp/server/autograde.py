@@ -13,7 +13,7 @@ credit = 40
 minor = 3
 major = 8
 
-mport = 8071
+mport = 8073
 
 def build():
   global credit
@@ -33,7 +33,7 @@ def build():
 
 def create_test_file(filename):
   f = open(filename, 'wb')
-  for i in xrange(100):
+  for i in xrange(10000):
     data = struct.pack('d', random.random())
     f.write(data)
   f.close()
@@ -102,8 +102,8 @@ def test(port=mport, directory='/tmp'):
 build()
 # Test 1
 test()
-print 'Finish test1'
-print 'Your credit is %d' % credit
+# print 'Finish test1'
+# print 'Your credit is %d' % credit
 # Test 2
 port = random.randint(20000, 30000)
 directory = ''.join(random.choice(string.ascii_letters) for x in xrange(10))

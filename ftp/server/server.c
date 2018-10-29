@@ -51,14 +51,39 @@ int parse_root(char* root, int argc, char** argv) {
 			if(i==argc-1) {
 				return -1;
 			}
-			memset(root, '\0', sizeof(root));
 			root = strcpy(root, argv[i+1]);
 			return 0;
 		}
 	}
 	char* default_root = DEFAULT_PATH;
-	memset(root, '\0', sizeof(root));
 	root = strcpy(root, default_root);
+	return 0;
+}
+
+int parse_host(int* host, int argc, char** argv) {
+	int i = 0;
+	char* dest = "-host";
+	char host_str[256];
+	for(i=0;i<argc;++i) {
+		if(strcmp(argv[i], dest)==0) {
+			if(i==argc-1) {
+				return -1;
+			}
+			memset(host_str, '\0', sizeof(host_str));
+			strcpy(host_str, argv[i+1]);
+			int a,b,c,d;
+			sscanf(host_str, "%d.%d.%d.%d", &a, &b, &c, &d);
+			host[0]=a;
+			host[1]=b;
+			host[2]=c;
+			host[3]=d;
+			return 0;
+		}
+	}
+	host[0]=127;
+	host[1]=0;
+	host[2]=0;
+	host[3]=1;
 	return 0;
 }
 
@@ -179,7 +204,7 @@ void* start_one_ftp_worker(void *pftp_thread_struct) {
 		if((len=msocket_read(connfd, buffer, MAX_BUFFER_LEN-1))==-1) {
 			return (void*)returnvalue;
 		}
-		if(len==0) {
+		if(len==-2) {
 			continue;
 		}
 		messdebug(buffer);
@@ -320,10 +345,12 @@ void* start_one_ftp_worker(void *pftp_thread_struct) {
 		datalistenfd = -1;
 	}
 	close(connfd);
+	cdebug("A connection disconnected.");
 }
 
 int main(int argc, char** argv) {
 	char* root = (char*)malloc(ROOT_LENGTH);
+	memset(root, '\0', ROOT_LENGTH);
 	int port = 21;
 	if((port = parse_port(DEFAULT_PORT, argc, argv))==-1) {
 		printf("Error parse_port(): Please specify the port you want to listen to after -port flag!\n");
@@ -334,6 +361,19 @@ int main(int argc, char** argv) {
 		return -1;
 	}
 
+	struct ftp_thread_struct worker_info;
+	worker_info.connfd = -1;
+	if(parse_host(worker_info.host_ip, argc, argv)==-1) {
+		printf("Error parse_host(): Please specify the host.\n");
+		return -1;
+	}
+	// worker_info.host_ip[0] = 127;
+	// worker_info.host_ip[1] = 0;
+	// worker_info.host_ip[2] = 0;
+	// worker_info.host_ip[3] = 1;
+	memset(worker_info.cwd, '\0', sizeof(worker_info.cwd));
+	strcpy(worker_info.cwd, root);
+
 	int listenfd, connfd;
 	pthread_t thread_id;
 
@@ -342,15 +382,6 @@ int main(int argc, char** argv) {
 	}
 
 	printf("listening on %d\n", port);
-
-	struct ftp_thread_struct worker_info;
-	worker_info.connfd = -1;
-	worker_info.host_ip[0] = 127;
-	worker_info.host_ip[1] = 0;
-	worker_info.host_ip[2] = 0;
-	worker_info.host_ip[3] = 1;
-	memset(worker_info.cwd, '\0', sizeof(worker_info.cwd));
-	strcpy(worker_info.cwd, root);
 
 	while(1) {
 		if ((connfd = accept(listenfd, NULL, NULL)) == -1) {

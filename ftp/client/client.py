@@ -1,5 +1,6 @@
 #! /usr/bin/python3
 import socket
+import re
 
 orders = [
     'binary', #0
@@ -126,7 +127,8 @@ def passive_connect(conns):
     code, res_content = unpack_response(response)
     if code != 227:
         return -1
-    res_content = res_content[1:]
+    res_content = re.findall(r"[0-9]{1,3},[0-9]{1,3},[0-9]{1,3},[0-9]{1,3},[0-9]{1,3},[0-9]{1,3}", res_content)[0]
+    # print(res_content)
     addr_list = res_content.split(',')
     addr_str = '.'.join(addr_list[0:4])
     port = int(addr_list[4])*256+int(addr_list[5])
@@ -191,7 +193,7 @@ def ls_handler(conns, order_content):
     response = socket_read_command_str(conns)
     print_res(response)
     list_file = str(data_buffer, encoding='utf-8').rstrip('\r\n').split('\r\n')
-    print('  '.join(list_file))
+    print('\n'.join(list_file))
     return 0
 
 def mkdir_handler(conns, order_content):
@@ -339,6 +341,8 @@ def user_handler(conns, order_content):
     response = response.rstrip('\r\n')
     responses = response.split('\r\n')
     code, _ = unpack_response(responses[-1])
+    if code == 230:
+        return 0
     if code==530:
         return 1
     if len(contents)==1:
@@ -384,8 +388,11 @@ def main():
         order = input('ftp>')
         code = unpatch_order(order)
         content = get_order_content(order)
-        print(code)
+        # print(code)
         # print(content)
+        if code == -1:
+            print('Invalid command. Please use ? to check out available commands')
+            continue
         if code == 14:
             help_handler()
             continue
