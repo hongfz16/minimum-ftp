@@ -630,10 +630,10 @@ int stor_handler(int connfd, char* buffer, int datafd, char* cwd, char* root) {
 		return -1;
 	}
 	memset(response, '\0', sizeof(response));
-	char data_buffer[2048];
-	memset(data_buffer, '\0', sizeof(data_buffer));
+	char* data_buffer = (char*)malloc(sizeof(char)*1024*1024);
+	memset(data_buffer, '\0', 1024*1024);
 	int datalen = 0;
-	if((datalen=msocket_read_file(datafd, data_buffer, 204800))==-1) {
+	if((datalen=msocket_read_file(datafd, data_buffer, 1024*1024))==-1) {
 		len = prepare_response_oneline(response, 426, 1, "Connection broken.");
 		if(msocket_write(connfd, response, strlen(response))==-1) {
 			close(datafd);
@@ -653,7 +653,7 @@ int stor_handler(int connfd, char* buffer, int datafd, char* cwd, char* root) {
 	strcat(filename, buffer+5);
 	filename[strlen(filename)-1]='\0';
 	FILE* pfile = fopen(filename, "wb");
-	if(fwrite(data_buffer, sizeof(unsigned char), datalen, pfile)==-1) {
+	if(fwrite(data_buffer, sizeof(char), datalen, pfile)==-1) {
 		len = prepare_response_oneline(response, 451, 1, "Problem saving the file.");
 		if(msocket_write(connfd, response, strlen(response))==-1) {
 			close(datafd);

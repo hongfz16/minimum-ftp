@@ -1,15 +1,15 @@
 #include "socket_utils.h"
 
 void cdebug(char* debug) {
-	printf("DEBUG: %s\n", debug);
+	// printf("DEBUG: %s\n", debug);
 }
 
 void idebug(int i) {
-	printf("DEBUG: %d\n", i);
+	// printf("DEBUG: %d\n", i);
 }
 
 void messdebug(char* mess) {
-	printf("FROM SERVER: %s", mess);
+	// printf("FROM SERVER: %s", mess);
 }
 
 int msocket_read(int connfd, char* buffer, int buffer_len) {
@@ -18,7 +18,7 @@ int msocket_read(int connfd, char* buffer, int buffer_len) {
 		int n = read(connfd, buffer + p, buffer_len - p);
 		if (n < 0) {
 			if(errno==EWOULDBLOCK) {
-				return 0;
+				return -2;
 			}
 			printf("Error read(): %s(%d)\n", strerror(errno), errno);
 			close(connfd);
@@ -153,7 +153,7 @@ int create_non_blocking_listen_socket(int port, int max_backlog) {
 	addr.sin_addr.s_addr = htonl(INADDR_ANY);
 
 	if (bind(listenfd, (struct sockaddr*)&addr, sizeof(addr)) == -1) {
-		printf("Error bind(): %s(%d)\n", strerror(errno), errno);
+		// printf("Error bind(): %s(%d)\n", strerror(errno), errno);
 		return -1;
 	}
 
