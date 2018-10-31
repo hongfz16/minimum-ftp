@@ -400,17 +400,21 @@ int list_handler(int connfd, char* buffer, int datafd, char* cwd, char* root) {
 		if(msocket_write(datafd, data_buffer, strlen(data_buffer))==-1) {
 			len = prepare_response_oneline(response, 426, 1, "TCP connection broken.");
 			if(msocket_write(connfd, response, strlen(response))==-1) {
+				close(datafd);
 				return -1;
 			}
+			close(datafd);
 			return 0;
 		}
 		len = prepare_response_oneline(response, 226, 1, "Data successfully transmitted.");
 		if(msocket_write(connfd, response, strlen(response))==-1) {
+			close(datafd);
 			return -1;
 		}
 	} else {
 		len = prepare_response_oneline(response, 451, 1, "Trouble reading directory.");
 		if(msocket_write(connfd, response, strlen(response))==-1) {
+			close(datafd);
 			return -1;
 		}
 	}

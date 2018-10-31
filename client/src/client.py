@@ -1,6 +1,7 @@
 #! /usr/bin/python3
 import socket
 import re
+import random
 
 orders = [
     'binary', #0
@@ -173,11 +174,52 @@ def get_handler(conns, order_content):
         f.write(data_buffer)
     return 0
 
+
+def get_host_ip():
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(('8.8.8.8', 80))
+        ip = s.getsockname()[0]
+    finally:
+        s.close() 
+    return ip
+
+def port_connect(conns):
+    port = random.randint(20000, 30000)
+    datas = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    host = get_host_ip()
+    while True:
+        try:
+            datas.bind((host, port))
+            datas.listen(5)
+        except:
+            port = random.randint(20000, 30000)
+            continue
+        break
+    print(host, port)
+    res_content = re.findall(r"[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}", host)[0]
+    addr_list = res_content.split('.')
+    addr_list.append(str(int(port/256)))
+    addr_list.append(str(port%256))
+    command = 'PORT ='+','.join(addr_list)
+    print(command)
+    command = command.encode()
+    if socket_send(conns, command)==-1:
+        datas.close()
+        return -1
+    try:
+        port_socket = datas.accept()
+    except:
+        return -1
+    return port_socket
+
+
 def ls_handler(conns, order_content):
     if len(order_content)>0:
         unsupported_command()
         return 1
-    datas = passive_connect(conns)
+    # datas = passive_connect(conns)
+    datas = port_connect(conns)
     if datas == -1:
         return 1
     command = b'LIST\r\n'
