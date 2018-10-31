@@ -201,16 +201,23 @@ def port_connect(conns):
     addr_list = res_content.split('.')
     addr_list.append(str(int(port/256)))
     addr_list.append(str(port%256))
-    command = 'PORT ='+','.join(addr_list)
-    print(command)
+    command = 'PORT '+','.join(addr_list) + '\r\n'
+    # print(command)
     command = command.encode()
     if socket_send(conns, command)==-1:
         datas.close()
         return -1
+    response = socket_read_command_str(conns)
+    print(response)
+    code, _ = unpack_response(response)
+    if code != 200:
+        datas.close()
+        return -1
     try:
-        port_socket = datas.accept()
+        port_socket, addr = datas.accept()
     except:
         return -1
+    # print("NEW CONNECTION "+str(addr))
     return port_socket
 
 
@@ -218,8 +225,8 @@ def ls_handler(conns, order_content):
     if len(order_content)>0:
         unsupported_command()
         return 1
-    # datas = passive_connect(conns)
-    datas = port_connect(conns)
+    datas = passive_connect(conns)
+    # datas = port_connect(conns)
     if datas == -1:
         return 1
     command = b'LIST\r\n'
