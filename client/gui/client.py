@@ -3,6 +3,11 @@ import socket
 import re
 import random
 
+class mFTP():
+    def __init__(self):
+       self. 
+
+
 orders = [
     'binary', #0
     'bye', #1
