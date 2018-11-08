@@ -383,6 +383,7 @@ int list_handler(int connfd, char* buffer, int datafd, char* cwd, char* root) {
 	strcpy(dirname, cwd);
 	strcat(dirname, root);
 	d = opendir(dirname);
+	memset(response, '\0', sizeof(response));
 	if(d) {
 		char data_buffer[1024];
 		memset(data_buffer, '\0', sizeof(data_buffer));
