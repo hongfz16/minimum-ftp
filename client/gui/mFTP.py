@@ -146,6 +146,7 @@ class mFTP():
         return [response, datas]
 
     def get_handler(self, remotename, localname):
+        # TODO: localname already exist?
         if not self.login_status:
             return [self.login_required, 1]
         response, datas = self.passive_connect()
@@ -387,4 +388,4 @@ def test():
     print(ftp.rmdir_handler('testfolder'))
     print(ftp.bye_handler())
 
-test()
+# test()
