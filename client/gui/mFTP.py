@@ -238,7 +238,7 @@ class mFTP():
         self.open_status = True
         return [response, 0]
 
-    def put_handler(self, order_content, remotename):
+    def put_handler(self, order_content, remotename, skip_n):
         if not self.login_status:
             return [self.login_required, 1]
         try:
@@ -247,6 +247,7 @@ class mFTP():
             print(e)
             return ['Cannot open the file: '+order_content, -1]
         try:
+            f.seek(skip_n, os.SEEK_SET)
             data_buffer = f.read()
         except Exception as e:
             print(e)
@@ -257,7 +258,10 @@ class mFTP():
             return [response, -1]
         if datas == -2:
             return [response, 1]
-        command = b' '.join([b'STOR', remotename.encode(encoding='utf-8')])
+        command_head = b'STOR'
+        if skip_n != 0:
+            command_head = b'APPE'
+        command = b' '.join([command_head, remotename.encode(encoding='utf-8')])
         command = command + b'\r\n'
         if self.socket_send_command(command)==-1:
             datas.close()
@@ -405,7 +409,7 @@ class mFTP():
         response += rest_resp
         if rest_status != 0:
             mode = 'wb'
-        
+
         command = b' '.join([b'RETR', remotename.encode(encoding='utf-8')])
         command = command + b'\r\n'
         if self.socket_send_command(command)==-1:
@@ -439,13 +443,14 @@ def test():
     print(ftp.mkdir_handler('testfolder'))
     print(ftp.cd_handler('testfolder'))
     print(ftp.pwd_handler())
-    print(ftp.put_handler('/Users/hongfz/Documents/Codes/test.py', 'test.py'))
+    print(ftp.put_handler('/Users/hongfz/Documents/Codes/test.py', 'test.py', 0))
     print(ftp.cd_handler('..'))
     print(ftp.pwd_handler())
     print(ftp.get_handler('testfolder/test.py', '/Users/hongfz/Documents/Codes/download_test.py'))
     print(ftp.rename_handler('testfolder/test.py', 'test.py'))
     print(ftp.rmdir_handler('testfolder'))
     print(ftp.restart_download('test.py', '/Users/hongfz/Documents/Codes/new_test.py'))
+    print(ftp.put_handler('/Users/hongfz/Documents/Codes/test.py', 'half_test.py', 10))
     print(ftp.bye_handler())
 
 test()

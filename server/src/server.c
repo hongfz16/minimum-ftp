@@ -309,7 +309,7 @@ void* start_one_ftp_worker(void *pftp_thread_struct) {
 				}
 				break;
 			case 16:
-				if(stor_handler(connfd, buffer, datafd, cwd, ftp_root)==-1) {
+				if(stor_handler(connfd, buffer, datafd, cwd, ftp_root, "wb")==-1) {
 					return (void*)returnvalue;
 				}
 				if(datafd>0) {
@@ -324,6 +324,19 @@ void* start_one_ftp_worker(void *pftp_thread_struct) {
 			case 17:
 				if(rest_handler(connfd, buffer, &rest_size, &rest_flag)==-1) {
 					return (void*)returnvalue;
+				}
+				break;
+			case 18:
+				if(stor_handler(connfd, buffer, datafd, cwd, ftp_root, "ab")==-1) {
+					return (void*)returnvalue;
+				}
+				if(datafd>0) {
+					close(datafd);
+					datafd = -1;
+				}
+				if(datalistenfd>0) {
+					close(datalistenfd);
+					datalistenfd = -1;
 				}
 				break;
 			case 100:

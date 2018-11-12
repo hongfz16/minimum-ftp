@@ -55,7 +55,7 @@ int rmd_handler(int connfd, char* buffer, char* cwd, char* root);
 
 int cwd_handler(int connfd, char* buffer, char* cwd, char* root);
 
-int stor_handler(int connfd, char* buffer, int datafd, char* cwd, char* root);
+int stor_handler(int connfd, char* buffer, int datafd, char* cwd, char* root, char* mode);
 
 int login_required_handler(int connfd);
 
@@ -65,6 +65,6 @@ int rnto_handler(int connfd, char* buffer, char* cwd, char* ftp_root, int* rnfr_
 
 int rest_handler(int connfd, char* buffer, int* rest_size, int* rest_flag);
 
-int appe_handler(int connfd, char* buffer, int datafd, char* cwd, char* root);
+// int appe_handler(int connfd, char* buffer, int datafd, char* cwd, char* root);
 
 #endif

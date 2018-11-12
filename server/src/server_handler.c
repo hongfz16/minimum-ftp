@@ -700,7 +700,7 @@ int cwd_handler(int connfd, char* buffer, char* cwd, char* root) {
 	return 0;
 }
 
-int stor_handler(int connfd, char* buffer, int datafd, char* cwd, char* root) {
+int stor_handler(int connfd, char* buffer, int datafd, char* cwd, char* root, char* mode) {
 	if(strlen(buffer)<7) {
 		if(datafd>0) {
 			close(datafd);
@@ -752,7 +752,7 @@ int stor_handler(int connfd, char* buffer, int datafd, char* cwd, char* root) {
 		return 1;
 	}
 	// filename[strlen(filename)-1]='\0';
-	FILE* pfile = fopen(filename, "wb");
+	FILE* pfile = fopen(filename, mode);
 	if(fwrite(data_buffer, sizeof(char), datalen, pfile)==-1) {
 		len = prepare_response_oneline(response, 451, 1, "Problem saving the file.");
 		if(msocket_write(connfd, response, strlen(response))==-1) {
@@ -970,9 +970,5 @@ int rest_handler(int connfd, char* buffer, int* rest_size, int* rest_flag) {
 	}
 	*rest_size = tmp_rest;
 	*rest_flag = 2;
-	return 0;
-}
-
-int appe_handler(int connfd, char* buffer, int datafd, char* cwd, char* root) {
 	return 0;
 }

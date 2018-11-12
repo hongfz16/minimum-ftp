@@ -234,7 +234,7 @@ class FTPGUI(QMainWindow):
 
     def putSlot(self, filename):
         path = self.localfileModel.path/filename
-        putresult = self.ftp.put_handler(path, filename)
+        putresult = self.ftp.put_handler(path, filename, 0)
         self.printLog(putresult, 'put ' + filename)
         if putresult[1] == 0:
             self.remotefileModel.setupItem()
