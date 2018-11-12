@@ -24,7 +24,7 @@ int msocket_read(int connfd, char* buffer, int buffer_len) {
 			close(connfd);
 			return -1;
 		} else if (n == 0) {
-			break;
+			return -3;
 		} else {
 			p += n;
 			if (buffer[p-1] == '\n') {

@@ -392,18 +392,24 @@ class RemoteFileSystemModel(QStandardItemModel):
         self.ftp = ftp
         self.path = '/'
         self.gui = gui
+        self.file_info = {}
         self.setupItem()
 
     def setupItem(self):
         if not self.ftp.login_status:
             return
+        self.file_info = {}
         self.removeRows(0, self.rowCount())
         self.updatePath()
         result = self.ftp.ls_handler()
         self.gui.printLog(result, 'ls')
         if result[1] == 0:
-            for x in result[2]:
-                item = QStandardItem(QApplication.style().standardIcon(QStyle.SP_FileIcon), x)
+            for x in result[2][1:]:
+                info = self.parse_linux_ls(x)
+                if info['type'] == 'd':
+                    item = QStandardItem(QApplication.style().standardIcon(QStyle.SP_DirIcon), info['name'])
+                else:
+                    item = QStandardItem(QApplication.style().standardIcon(QStyle.SP_FileIcon), info['name'])
                 item.setEditable(False)
                 self.appendRow(item)
 
@@ -423,6 +429,22 @@ class RemoteFileSystemModel(QStandardItemModel):
         self.gui.printLog(result, 'pwd')
         if result[1] == 0:
             self.path = result[2]
+
+    def parse_linux_ls(self, line):
+        info = {}
+        parsed = ' '.join(filter(lambda x: x, line.split(' ')))
+        parsed = parsed.split(' ')
+        info['type'] = parsed[0][0]
+        info['mod'] = parsed[0][1:]
+        info['link'] = int(parsed[1])
+        info['owner'] = parsed[2]
+        info['group'] = parsed[3]
+        info['size'] = int(parsed[4])
+        info['modify_time'] = ' '.join(parsed[5:8])
+        info['name'] = parsed[8]
+        # self.file_info.append(info)
+        self.file_info[info['name']] = info
+        return info
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)

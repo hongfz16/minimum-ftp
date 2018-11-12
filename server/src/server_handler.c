@@ -225,12 +225,15 @@ int retr_handler_common_file(int connfd, int datafd, FILE* pfile, long fsize) {
 	return 0;
 }
 
-int retr_handler(int connfd, char* buffer, int datafd, char* cwd, char* root) {
+int retr_handler(int connfd, char* buffer, int datafd, char* cwd, char* root, int* rest_size, int* rest_flag) {
 	if(strlen(buffer)<7) {
 		if(datafd>0) {
 			close(datafd);
 		}
 		return request_not_support_handler(connfd);
+	}
+	if(*rest_flag==0) {
+		*rest_size = 0;
 	}
 	char filename[1024];
 	memset(filename, '\0', sizeof(filename));
@@ -274,6 +277,13 @@ int retr_handler(int connfd, char* buffer, int datafd, char* cwd, char* root) {
 	fseek(pfile, 0, SEEK_END);
 	long fsize = ftell(pfile);
 	rewind(pfile);
+	if(fsize > *rest_size) {
+		int result = fseek(pfile, *rest_size, SEEK_SET);
+		fsize -= *rest_size;
+	} else {
+		fseek(pfile, 0, SEEK_END);
+		fsize = 0;
+	}
 	if(retr_handler_common_file(connfd, datafd, pfile, fsize)==-1) {
 		return -1;
 	}
@@ -385,17 +395,46 @@ int list_handler(int connfd, char* buffer, int datafd, char* cwd, char* root) {
 	d = opendir(dirname);
 	memset(response, '\0', sizeof(response));
 	if(d) {
-		char data_buffer[1024];
+		char data_buffer[8192];
 		memset(data_buffer, '\0', sizeof(data_buffer));
-		while((dir=readdir(d))!=NULL) {
-			if(strcmp(root, "/")==0) {
-				if(strcmp(dir->d_name, "..")==0) {
-					continue;
-				}
+		// while((dir=readdir(d))!=NULL) {
+		// 	if(strcmp(root, "/")==0) {
+		// 		if(strcmp(dir->d_name, "..")==0) {
+		// 			continue;
+		// 		}
+		// 	}
+		// 	strcat(data_buffer, dir->d_name);
+		// 	strcat(data_buffer, "\r\n");
+		// }
+		// char os_list_buffer[8192];
+		char path_buffer[1024];
+		FILE *command_fp;
+		/* Open the command for reading. */
+		char ls_command[1024];
+		sprintf(ls_command, "/bin/ls -l -a %s", dirname);
+		command_fp = popen(ls_command, "r");
+		if (command_fp == NULL) {
+			len = prepare_response_oneline(response, 451, 1, "Trouble reading directory.");
+			if(msocket_write(connfd, response, strlen(response))==-1) {
+				close(datafd);
+				return -1;
 			}
-			strcat(data_buffer, dir->d_name);
+			close(datafd);
+			return 0;
+			// printf("Failed to run command\n" );
+			// exit(1);
+		}
+		/* Read the output a line at a time - output it. */
+		while (fgets(path_buffer, sizeof(path_buffer)-1, command_fp) != NULL) {
+			// printf("%s", path);
+			path_buffer[strlen(path_buffer)-1]='\0';
+			strcat(data_buffer, path_buffer);
 			strcat(data_buffer, "\r\n");
 		}
+
+		/* close */
+		pclose(command_fp);
+ 
 		closedir(d);
 		// cdebug(data_buffer);
 		if(msocket_write(datafd, data_buffer, strlen(data_buffer))==-1) {
@@ -909,5 +948,31 @@ int rnto_handler(int connfd, char* buffer, char* cwd, char* root, int* rnfr_flag
 	if(msocket_write(connfd, response, strlen(response))==-1) {
 		return -1;
 	}
+	return 0;
+}
+
+
+int rest_handler(int connfd, char* buffer, int* rest_size, int* rest_flag) {
+	if(strlen(buffer)<7) {
+		return request_not_support_handler(connfd);
+	}
+	int tmp_rest = 0;
+	if(sscanf(buffer, "REST %d\n", &tmp_rest)==EOF) {
+		return request_not_support_handler(connfd);
+	}
+	if(tmp_rest<0) {
+		return request_not_support_handler(connfd);
+	}
+	char response[1024];
+	int len = prepare_response_oneline(response, 350, 1, "REST command confirmed.");
+	if(msocket_write(connfd, response, strlen(response))==-1) {
+		return -1;
+	}
+	*rest_size = tmp_rest;
+	*rest_flag = 2;
+	return 0;
+}
+
+int appe_handler(int connfd, char* buffer, int datafd, char* cwd, char* root) {
 	return 0;
 }

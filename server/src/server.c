@@ -138,6 +138,12 @@ int unpack_message(char* buffer, int login_flag) {
 	if(strcmp(order, "STOR")==0) {
 		return_code = 16;
 	}
+	if(strcmp(order, "REST")==0) {
+		return_code = 17;
+	}
+	if(strcmp(order, "APPE")==0) {
+		return_code = 18;
+	}
 	if(!login_flag && return_code>4 && return_code<100 && return_code!=8) {
 		return_code = 101;
 	}
@@ -178,6 +184,8 @@ void* start_one_ftp_worker(void *pftp_thread_struct) {
 	int quit_flag=0;
 	int login_flag=0;
 	int rnfr_flag=0;
+	int rest_size=0;
+	int rest_flag=0;
 	char move_file_path[1024];
 
 	while(1) {
@@ -201,6 +209,8 @@ void* start_one_ftp_worker(void *pftp_thread_struct) {
 		}
 		if(len==-2) {
 			continue;
+		} else if(len==-3) {
+			return (void*)returnvalue;
 		}
 		messdebug(buffer);
 		int order = unpack_message(buffer, login_flag);
@@ -232,7 +242,7 @@ void* start_one_ftp_worker(void *pftp_thread_struct) {
 				}
 				break;
 			case 6:
-				if(retr_handler(connfd, buffer, datafd, cwd, ftp_root)==-1) {
+				if(retr_handler(connfd, buffer, datafd, cwd, ftp_root, &rest_size, &rest_flag)==-1) {
 					return (void*)returnvalue;
 				}
 				if(datafd>0) {
@@ -311,6 +321,11 @@ void* start_one_ftp_worker(void *pftp_thread_struct) {
 					datalistenfd = -1;
 				}
 				break;
+			case 17:
+				if(rest_handler(connfd, buffer, &rest_size, &rest_flag)==-1) {
+					return (void*)returnvalue;
+				}
+				break;
 			case 100:
 				if(request_not_support_handler(connfd)==-1) {
 					return (void*)returnvalue;
@@ -325,6 +340,10 @@ void* start_one_ftp_worker(void *pftp_thread_struct) {
 
 		if(rnfr_flag>0) {
 			rnfr_flag-=1;
+		}
+
+		if(rest_flag>0) {
+			rest_flag-=1;
 		}
 
 		if(quit_flag) {

@@ -1,7 +1,8 @@
 #! /usr/bin/python3
-import socket
 import re
+import os
 import random
+import socket
 
 class mFTP():
     def __init__(self):
@@ -146,9 +147,14 @@ class mFTP():
         return [response, datas]
 
     def get_handler(self, remotename, localname):
-        # TODO: localname already exist?
         if not self.login_status:
             return [self.login_required, 1]
+        counter = 0
+        while os.path.exists(localname):
+            counter += 1
+            localname_split = localname.rsplit('.', 1)
+            localname_split[0] += str(counter)
+            localname = '.'.join(localname_split)
         response, datas = self.passive_connect()
         if datas == -1:
             return [response, -1]
@@ -370,6 +376,59 @@ class mFTP():
         self.login_status = True
         return [response, 0]
 
+    def rest_handler(self, n):
+        if not self.open_status:
+            return [self.open_required, 1]
+        command = b' '.join([b'REST', str(n).encode(encoding='utf-8')])
+        command = command + b'\r\n'
+        if self.socket_send_command(command) == -1:
+            return self.connection_broken()
+        response = self.socket_read_command()
+        code = self.unpack_response(response)
+        if code != 350:
+            return [response, 1]
+        else:
+            return [response, 0]
+
+    def restart_download(self, remotename, localname):
+        if not self.login_status:
+            return [self.login_required, 1]
+        response, datas = self.passive_connect()
+        if datas == -1:
+            return [response, -1]
+        if datas == -2:
+            return [response, 1]
+        
+        mode = 'ab'
+        tmp_size = os.path.getsize(localname)
+        rest_resp, rest_status = self.rest_handler(tmp_size)
+        response += rest_resp
+        if rest_status != 0:
+            mode = 'wb'
+        
+        command = b' '.join([b'RETR', remotename.encode(encoding='utf-8')])
+        command = command + b'\r\n'
+        if self.socket_send_command(command)==-1:
+            datas.close()
+            self.connection_broken()
+            return [response + '\nConnection Broken.', -1]
+        second_response = self.socket_read_command()
+        response += second_response
+        code = self.unpack_response(second_response)
+        if code != 150:
+            datas.close()
+            return [response, 1]
+        data_buffer = self.socket_read_data(datas)
+        datas.close()
+        third_response = self.socket_read_command()
+        response += third_response
+        code = self.unpack_response(third_response)
+        if code != 226:
+            return [response, 1]
+        with open(localname, mode) as f:
+            f.write(data_buffer)
+        return [response, 0]
+
 def test():
     ftp = mFTP()
     print(ftp.open_handler('127.0.0.1', 8000))
@@ -380,12 +439,13 @@ def test():
     print(ftp.mkdir_handler('testfolder'))
     print(ftp.cd_handler('testfolder'))
     print(ftp.pwd_handler())
-    print(ftp.put_handler('/home/hongfz/Documents/test.c', 'test.c'))
+    print(ftp.put_handler('/Users/hongfz/Documents/Codes/test.py', 'test.py'))
     print(ftp.cd_handler('..'))
     print(ftp.pwd_handler())
-    print(ftp.get_handler('testfolder/test.c', '/home/hongfz/Documents/ftp_lab/test.c'))
-    print(ftp.rename_handler('testfolder/test.c', 'test.c'))
+    print(ftp.get_handler('testfolder/test.py', '/Users/hongfz/Documents/Codes/download_test.py'))
+    print(ftp.rename_handler('testfolder/test.py', 'test.py'))
     print(ftp.rmdir_handler('testfolder'))
+    print(ftp.restart_download('test.py', '/Users/hongfz/Documents/Codes/new_test.py'))
     print(ftp.bye_handler())
 
-# test()
+test()
