@@ -358,7 +358,7 @@ class FTPGUI(QMainWindow):
 class LocalFileSystemModel(QStandardItemModel):
     def __init__(self):
         super().__init__()
-        self.path=Path('/')
+        self.path=Path('/Users/hongfz/Documents/Codes')
         self.setupItem()
 
     def setupItem(self):
@@ -431,6 +431,12 @@ class RemoteFileSystemModel(QStandardItemModel):
             self.path = result[2]
 
     def parse_linux_ls(self, line):
+        info = self.single_parse_service(line)
+        # self.file_info.append(info)
+        self.file_info[info['name']] = info
+        return info
+
+    def single_parse_service(self, line):
         info = {}
         parsed = ' '.join(filter(lambda x: x, line.split(' ')))
         parsed = parsed.split(' ')
@@ -442,8 +448,6 @@ class RemoteFileSystemModel(QStandardItemModel):
         info['size'] = int(parsed[4])
         info['modify_time'] = ' '.join(parsed[5:8])
         info['name'] = parsed[8]
-        # self.file_info.append(info)
-        self.file_info[info['name']] = info
         return info
 
 if __name__ == '__main__':

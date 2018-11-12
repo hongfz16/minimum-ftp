@@ -202,25 +202,44 @@ int retr_handler_file_err(int connfd, int datafd) {
 }
 
 int retr_handler_common_file(int connfd, int datafd, FILE* pfile, long fsize) {
-	char* data_buffer = (char*)malloc(sizeof(char)*fsize);
-	if(data_buffer==NULL) {
-		return retr_handler_file_err(connfd, datafd);
-	}
-	size_t result = fread(data_buffer, 1, fsize, pfile);
-	fclose(pfile);
-	if(result!=fsize) {
-		return retr_handler_file_err(connfd, datafd);
-	}
-	idebug(fsize);
-	if(msocket_write(datafd, data_buffer, fsize)==-1) {
-		char response[1024];
-		memset(response, '\0', sizeof(response));
-		int len = prepare_response_oneline(response, 426, 1, "Data transfer connection broken.");
-		if(msocket_write(connfd, response, strlen(response))==-1) {
+	long left = fsize;
+	char* data_buffer = (char*)malloc(sizeof(char)*1024*1024);
+	int buffer_size = 1024*1024;
+	while(left) {
+		int tmp_size = buffer_size;
+		if(left < buffer_size) {
+			tmp_size = left;
+			left = 0;
+		} else {
+			left -= buffer_size;
+		}
+		if(data_buffer==NULL) {
+			fclose(pfile);
+			return retr_handler_file_err(connfd, datafd);
+		}
+		size_t result = fread(data_buffer, 1, tmp_size, pfile);
+		// fclose(pfile);
+		if(result != tmp_size) {
+			fclose(pfile);
+			free(data_buffer);
+			return retr_handler_file_err(connfd, datafd);
+		}
+		idebug(fsize);
+		if(msocket_write(datafd, data_buffer, tmp_size)==-1) {
+			char response[1024];
+			memset(response, '\0', sizeof(response));
+			int len = prepare_response_oneline(response, 426, 1, "Data transfer connection broken.");
+			if(msocket_write(connfd, response, strlen(response))==-1) {
+				fclose(pfile);
+				free(data_buffer);
+				return -1;
+			}
+			fclose(pfile);
 			free(data_buffer);
 			return -1;
 		}
 	}
+	fclose(pfile);
 	free(data_buffer);
 	return 0;
 }
@@ -721,27 +740,14 @@ int stor_handler(int connfd, char* buffer, int datafd, char* cwd, char* root, ch
 		return -1;
 	}
 	memset(response, '\0', sizeof(response));
-	char* data_buffer = (char*)malloc(sizeof(char)*1024*1024);
-	memset(data_buffer, '\0', 1024*1024);
+	// char* data_buffer = (char*)malloc(sizeof(char)*1024*1024);
+	// memset(data_buffer, '\0', 1024*1024);
 	int datalen = 0;
-	if((datalen=msocket_read_file(datafd, data_buffer, 1024*1024))==-1) {
-		len = prepare_response_oneline(response, 426, 1, "Connection broken.");
-		if(msocket_write(connfd, response, strlen(response))==-1) {
-			close(datafd);
-			return -1;
-		}
-		close(datafd);
-		return 1;
-	}
+
 	char filename[1024];
 	memset(filename, '\0', sizeof(filename));
 	strcpy(filename, cwd);
-	// strcat(filename, root);
-	// if(strcmp(root, "/")!=0) {
-	// 	strcat(filename, "/");
-	// }
-	// //TODO: take care of "/test" case
-	// strcat(filename, buffer+5);
+
 	if(change_directory(root, buffer + 5, filename+strlen(filename))==-1) {
 		len = prepare_response_oneline(response, 451, 1, "Problem saving the file.");
 		if(msocket_write(connfd, response, strlen(response))==-1) {
@@ -751,9 +757,19 @@ int stor_handler(int connfd, char* buffer, int datafd, char* cwd, char* root, ch
 		close(datafd);
 		return 1;
 	}
-	// filename[strlen(filename)-1]='\0';
+
 	FILE* pfile = fopen(filename, mode);
-	if(fwrite(data_buffer, sizeof(char), datalen, pfile)==-1) {
+	datalen=msocket_read_file_large(datafd, pfile);
+	if(datalen == -1) {
+		len = prepare_response_oneline(response, 426, 1, "Connection broken.");
+		if(msocket_write(connfd, response, strlen(response))==-1) {
+			close(datafd);
+			return -1;
+		}
+		close(datafd);
+		return 1;
+	}
+	else if(datalen == -2) {
 		len = prepare_response_oneline(response, 451, 1, "Problem saving the file.");
 		if(msocket_write(connfd, response, strlen(response))==-1) {
 			close(datafd);
@@ -763,6 +779,17 @@ int stor_handler(int connfd, char* buffer, int datafd, char* cwd, char* root, ch
 		close(datafd);
 		return 1;
 	}
+	// FILE* pfile = fopen(filename, mode);
+	// if(fwrite(data_buffer, sizeof(char), datalen, pfile)==-1) {
+	// 	len = prepare_response_oneline(response, 451, 1, "Problem saving the file.");
+	// 	if(msocket_write(connfd, response, strlen(response))==-1) {
+	// 		close(datafd);
+	// 		return -1;
+	// 	}
+	// 	fclose(pfile);
+	// 	close(datafd);
+	// 	return 1;
+	// }
 	len = prepare_response_oneline(response, 226, 1, "Successfully receive data.");
 	if(msocket_write(connfd, response, strlen(response))==-1) {
 		fclose(pfile);

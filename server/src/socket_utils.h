@@ -45,4 +45,6 @@ int single_change_directory(char* test_root, char* single_path);
 
 int change_directory(const char* root, char* path, char* test_root);
 
+int msocket_read_file_large(int connfd, FILE* fd);
+
 #endif

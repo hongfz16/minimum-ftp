@@ -58,14 +58,44 @@ int msocket_read_file(int connfd, char* buffer, int buffer_len) {
 	return p;
 }
 
+int msocket_read_file_large(int connfd, FILE* fd) {
+	int p = 0;
+	char buffer[1024];
+	int buffer_len = 1024;
+	while (1) {
+		int n = read(connfd, buffer, buffer_len);
+		cdebug(buffer);
+		idebug(n);
+		if (n < 0) {
+			printf("Error read(): %s(%d)\n", strerror(errno), errno);
+			close(connfd);
+			return -1;
+		} else if (n == 0) {
+			break;
+		} else {
+			p += n;
+			if(fwrite(buffer, sizeof(char), n, fd) == -1) {
+				return -2;
+			}
+		}
+	}
+	return p;
+}
+
 int msocket_write(int connfd, char* buffer, int len) {
 	int p = 0;
 	while (p < len) {
 		int n = write(connfd, buffer + p, len - p);
 		if (n < 0) {
-			printf("Error write(): %s(%d)\n", strerror(errno), errno);
-			close(connfd);
-			return -1;
+			if(errno == EINTR || errno == EWOULDBLOCK || errno == EAGAIN) {
+				continue;
+			} else{
+				printf("Error write(): %s(%d)\n", strerror(errno), errno);
+				close(connfd);
+				return -1;
+			}
+ 		} else if (n==0) {
+ 			break;
  		} else {
 			p += n;
 		}

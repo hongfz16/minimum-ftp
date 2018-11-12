@@ -26,6 +26,15 @@ class mFTP():
         data = b''.join(buffer)
         return data
 
+    def socket_read_data_large(self, s, f):
+        while True:
+            d = s.recv(1024)
+            if d:
+                f.write(d)
+            else:
+                break
+        return True
+
     def socket_read_command(self):
         buffer = []
         while True:
@@ -172,15 +181,14 @@ class mFTP():
         if code != 150:
             datas.close()
             return [response, 1]
-        data_buffer = self.socket_read_data(datas)
-        datas.close()
+        with open(localname, 'wb') as f:
+            self.socket_read_data_large(datas, f)
+            datas.close()
         third_response = self.socket_read_command()
         response += third_response
         code = self.unpack_response(third_response)
         if code != 226:
             return [response, 1]
-        with open(localname, 'wb') as f:
-            f.write(data_buffer)
         return [response, 0]
 
     def ls_handler(self):
@@ -453,4 +461,4 @@ def test():
     print(ftp.put_handler('/Users/hongfz/Documents/Codes/test.py', 'half_test.py', 10))
     print(ftp.bye_handler())
 
-test()
+# test()
