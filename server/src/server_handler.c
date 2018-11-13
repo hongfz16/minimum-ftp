@@ -232,11 +232,12 @@ int retr_handler_common_file(int connfd, int datafd, FILE* pfile, long fsize) {
 			if(msocket_write(connfd, response, strlen(response))==-1) {
 				fclose(pfile);
 				free(data_buffer);
+				printf("cannot transfer 426");
 				return -1;
 			}
 			fclose(pfile);
 			free(data_buffer);
-			return -1;
+			return 0;
 		}
 	}
 	fclose(pfile);

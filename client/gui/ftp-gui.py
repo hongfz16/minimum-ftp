@@ -1,7 +1,8 @@
 import sys
 import os
 from pathlib import Path
-from PyQt5.QtCore import (Qt, QDir, QTimer, QEvent)
+from PyQt5.QtCore import (Qt, QDir, QTimer, QEvent,
+                          pyqtSignal, QThreadPool)
 from PyQt5.QtWidgets import (QMainWindow, QApplication,
                              QDesktopWidget, QAction, qApp,
                              QMenu, QGridLayout, QPushButton,
@@ -10,10 +11,13 @@ from PyQt5.QtWidgets import (QMainWindow, QApplication,
                              QVBoxLayout, QFileDialog, QListView,
                              QHBoxLayout, QSplitter, QFrame,
                              QFileSystemModel, QStyle, QPlainTextEdit,
-                             QMessageBox, QInputDialog)
+                             QMessageBox, QInputDialog, QListWidget,
+                             QListWidgetItem, QProgressBar)
 from PyQt5.QtGui import (QStandardItemModel, QIcon, QStandardItem,
                          QTextCursor, QColor, QGuiApplication)
 from mFTP import mFTP
+from ftpWorker import putWorker, getWorker
+from ftpFileModel import LocalFileSystemModel, RemoteFileSystemModel
 
 class FTPGUI(QMainWindow):
     def __init__(self):
@@ -24,6 +28,7 @@ class FTPGUI(QMainWindow):
             self.ftp.open_handler('127.0.0.1', 8000)
             self.ftp.user_handler('anonymous', 'password')
         self.initUI()
+        self.threadpool = QThreadPool()
 
     def initUI(self):
         self.centerwidget = QWidget(self)
@@ -124,6 +129,8 @@ class FTPGUI(QMainWindow):
         filesplitter.addWidget(localframe)
         filesplitter.addWidget(remoteframe)
 
+        self.tasklist = QListWidget(self)
+
         # Set overall layout
         vlay = QVBoxLayout()
 
@@ -138,6 +145,7 @@ class FTPGUI(QMainWindow):
         topsplitter.addWidget(authframe)
         topsplitter.addWidget(commandframe)
         topsplitter.addWidget(filesplitter)
+        topsplitter.addWidget(self.tasklist)
 
         vlay.addWidget(topsplitter)
 
@@ -233,22 +241,141 @@ class FTPGUI(QMainWindow):
         return super(FTPGUI, self).eventFilter(source, event)
 
     def putSlot(self, filename):
+        downloadtask = QListWidgetItem(self.tasklist)
+        self.tasklist.addItem(downloadtask)
+        
+        dlvlay = QHBoxLayout()
+        listwidget = QWidget(self)
+        typelabel = QLabel('Upload')
+        dlfilename = QLabel(filename)
+        downloadprogress = QProgressBar(self)
+        dlbutton = QPushButton('Pause')
+        dlbutton.clicked.connect(self.putPauseSlot)
+        dlvlay.addWidget(typelabel)
+        dlvlay.addWidget(dlfilename)
+        dlvlay.addWidget(downloadprogress)
+        dlvlay.addWidget(dlbutton)
+        listwidget.setLayout(dlvlay)
+
+        downloadtask.setSizeHint(listwidget.sizeHint())
+        downloadtask.setFlags(downloadtask.flags() & ~Qt.ItemIsSelectable)
+        self.tasklist.setItemWidget(downloadtask, listwidget)
+
         path = self.localfileModel.path/filename
-        putresult = self.ftp.put_handler(path, filename, 0)
-        self.printLog(putresult, 'put ' + filename)
-        if putresult[1] == 0:
+        self.putPauseflag = {'stop':False, 'button':dlbutton,
+                             'dlpb':downloadprogress, 'localname':path,
+                             'remotefullpath':self.remotefileModel.path,
+                             'remotename':filename}
+        # putresult = self.ftp.put_handler(path, filename, 0)
+        worker = putWorker(self.ftp, path, filename, 0,
+                           downloadprogress, self.putUpdatePBSlot, self.putFinishSlot,
+                           self.putPauseflag)
+        self.threadpool.start(worker)
+
+    def putUpdatePBSlot(self, tup):
+        tup[1].setValue(tup[0])
+
+    def putFinishSlot(self, tup):
+        new_code = 0
+        if tup[1] == 1:
+            new_code = 1
+        self.printLog([tup[0], new_code], 'put ' + tup[2])
+        if tup[1] != 1:
             self.remotefileModel.setupItem()
+        if tup[1] == 0:
+            self.putPauseflag['stop'] = True
+            self.putPauseflag['button'].setEnabled(False)
+
+    def putPauseSlot(self):
+        if not self.putPauseflag['stop']:
+            self.putPauseflag['stop'] = True
+            self.putPauseflag['button'].setText('Continue')
+        else:
+            self.putPauseflag['stop'] = False
+            self.putPauseflag['button'].setText('Pause')
+            localname = self.putPauseflag['localname']
+            remotename = self.putPauseflag['remotename']
+            remotefullpath = self.putPauseflag['remotefullpath']
+            dlpb = self.putPauseflag['dlpb']
+            info = self.remotefileModel.getinfo(remotefullpath, remotename)
+            if info['size']:
+                size = info['size']
+            else:
+                size = 0
+            worker = putWorker(self.ftp, localname, remotefullpath + '/' + remotename, size,
+                               dlpb, self.putUpdatePBSlot, self.putFinishSlot,
+                               self.putPauseflag)
+            self.threadpool.start(worker)
 
     def doubleClickLocalFile(self, index):
         self.localfileModel.changeDir(index.data())
         self.localfileLine.setText(str(self.localfileModel.path))
 
     def getSlot(self, filename):
+        remotefilename = filename
+        remotefullpath = self.remotefileModel.path
         localfilename = str(self.localfileModel.path/filename)
-        getresult = self.ftp.get_handler(filename, localfilename)
-        self.printLog(getresult, 'get ' + filename)
-        if getresult[1] == 0:
+        size = self.remotefileModel.file_info[remotefilename]['size']
+        # getresult = self.ftp.get_handler(filename, localfilename)
+        # self.printLog(getresult, 'get ' + filename)
+        # if getresult[1] == 0:
+        #     self.localfileModel.setupItem()
+        gettaskitem = QListWidgetItem(self.tasklist)
+        self.tasklist.addItem(gettaskitem)
+        
+        dlvlay = QHBoxLayout()
+        listwidget = QWidget(self)
+        typelabel = QLabel('Download')
+        dlfilename = QLabel(filename)
+        getpb = QProgressBar(self)
+        dlbutton = QPushButton('Pause')
+        dlbutton.clicked.connect(self.getPauseSlot)
+        dlvlay.addWidget(typelabel)
+        dlvlay.addWidget(dlfilename)
+        dlvlay.addWidget(getpb)
+        dlvlay.addWidget(dlbutton)
+        listwidget.setLayout(dlvlay)
+
+        gettaskitem.setSizeHint(listwidget.sizeHint())
+        gettaskitem.setFlags(gettaskitem.flags() & ~Qt.ItemIsSelectable)
+        self.tasklist.setItemWidget(gettaskitem, listwidget)
+
+        self.getPauseflag = {'stop':False, 'button':dlbutton,
+                             'getpb':getpb, 'localname':localfilename,
+                             'remotefullpath':remotefullpath,
+                             'remotename':filename, 'size':size}
+        worker = getWorker(self.ftp, localfilename, remotefullpath + '/' + remotefilename,
+                           False, getpb, self.getUpdatePBSlot, self.getFinishSlot, self.getPauseflag)
+        self.threadpool.start(worker)
+
+    def getUpdatePBSlot(self, tup):
+        tup[1].setValue(tup[0])
+
+    def getFinishSlot(self, tup):
+        new_code = 0
+        if tup[1] == 1:
+            new_code = 1
+        self.printLog([tup[0], new_code], 'get ' + tup[2])
+        if tup[1] != 1:
             self.localfileModel.setupItem()
+        if tup[1] == 0:
+            self.getPauseflag['stop'] = True
+            self.getPauseflag['button'].setEnabled(False)
+
+    def getPauseSlot(self):
+        if not self.getPauseflag['stop']:
+            self.getPauseflag['stop'] = True
+            self.getPauseflag['button'].setText('Continue')
+        else:
+            self.getPauseflag['stop'] = False
+            self.getPauseflag['button'].setText('Pause')
+            localfilename = self.getPauseflag['localname']
+            remotefullpath = self.getPauseflag['remotefullpath']
+            remotename = self.getPauseflag['remotename']
+            getpb = self.getPauseflag['getpb']
+            worker = getWorker(self.ftp, localfilename, remotefullpath + '/' + remotename,
+                               True, getpb, self.getUpdatePBSlot, self.getFinishSlot, self.getPauseflag)
+            self.threadpool.start(worker)
 
     def remoteMkdir(self):
         text, ok = QInputDialog.getText(self, 'New Directory', 'Enter new directory name:')
@@ -302,7 +429,6 @@ class FTPGUI(QMainWindow):
                 self.connectBtn.setText('Connect')
                 self.remotefileModel.removeRows(0, self.remotefileModel.rowCount())
 
-
     def setBinary(self):
         if not self.ftp.open_status:
             return
@@ -334,121 +460,16 @@ class FTPGUI(QMainWindow):
         blueColor = QColor(0, 0, 255)
         redColor = QColor(255, 0, 0)
         blackColor = QColor(0, 0, 0)
-        # self.commandText.setTextColor(greenColor)
-        # self.commandText.append('>ftp '+command)
         self.setUpdatesEnabled(False)
         self.commandText.append("<span style='color:#4169E1'>&gt;ftp&nbsp;&nbsp;&nbsp;</span><span style='color:#2F4F4F'>"+command+"</span>")
         if result[1] == 0:
-            # message = "<p style='color:#008000'>" + message + "</p>"
             self.commandText.setTextColor(greenColor)
         elif result[1] == 1:
-            # message = "<p style='color:#0000FF'>" + message + "</p>"
             self.commandText.setTextColor(redColor)
         else:
-            # message = "<p style='color:#FF0000'>" + message + "</p>"
             self.commandText.setTextColor(redColor)
-        # self.commandText.moveCursor(QTextCursor.End)
-        # self.commandText.insertPlainText(result[0])
         self.commandText.append(result[0].strip('\r\n'))
         self.setUpdatesEnabled(True)
-        # QGuiApplication.processEvents()
-        # self.commandText.update()
-        # self.commandText.appendHtml(message)
-
-class LocalFileSystemModel(QStandardItemModel):
-    def __init__(self):
-        super().__init__()
-        self.path=Path('/Users/hongfz/Documents/Codes')
-        self.setupItem()
-
-    def setupItem(self):
-        self.removeRows(0, self.rowCount())
-        two_more = ['.', '..']
-        for x in two_more:
-            item = QStandardItem(QApplication.style().standardIcon(QStyle.SP_DirIcon), x)
-            item.setEditable(False)
-            self.appendRow(item)
-        for x in self.path.iterdir():
-            if x.is_dir() and x.name[0]!='.':
-                item = QStandardItem(QApplication.style().standardIcon(QStyle.SP_DirIcon), x.name)
-                item.setEditable(False)
-                self.appendRow(item)
-        for x in self.path.iterdir():
-            if x.is_file() and x.name[0]!='.':
-                item = QStandardItem(QApplication.style().standardIcon(QStyle.SP_FileIcon), x.name)
-                item.setEditable(False)
-                self.appendRow(item)
-
-    def changeDir(self, name):
-        tmp_path = self.path/name
-        if tmp_path.exists() and tmp_path.is_dir():
-            self.path = tmp_path.resolve()
-            # self.removeRows(0, self.rowCount())
-            self.setupItem()
-
-class RemoteFileSystemModel(QStandardItemModel):
-    def __init__(self, ftp, gui):
-        super().__init__()
-        self.ftp = ftp
-        self.path = '/'
-        self.gui = gui
-        self.file_info = {}
-        self.setupItem()
-
-    def setupItem(self):
-        if not self.ftp.login_status:
-            return
-        self.file_info = {}
-        self.removeRows(0, self.rowCount())
-        self.updatePath()
-        result = self.ftp.ls_handler()
-        self.gui.printLog(result, 'ls')
-        if result[1] == 0:
-            for x in result[2][1:]:
-                info = self.parse_linux_ls(x)
-                if info['type'] == 'd':
-                    item = QStandardItem(QApplication.style().standardIcon(QStyle.SP_DirIcon), info['name'])
-                else:
-                    item = QStandardItem(QApplication.style().standardIcon(QStyle.SP_FileIcon), info['name'])
-                item.setEditable(False)
-                self.appendRow(item)
-
-    def changeDir(self, name):
-        if not self.ftp.login_status:
-            return
-        result = self.ftp.cd_handler(name)
-        self.gui.printLog(result, 'cd '+name)
-        if result[1] == 0:
-            # self.removeRows(0, self.rowCount())
-            self.setupItem()
-
-    def updatePath(self):
-        if not self.ftp.login_status:
-            return
-        result = self.ftp.pwd_handler()
-        self.gui.printLog(result, 'pwd')
-        if result[1] == 0:
-            self.path = result[2]
-
-    def parse_linux_ls(self, line):
-        info = self.single_parse_service(line)
-        # self.file_info.append(info)
-        self.file_info[info['name']] = info
-        return info
-
-    def single_parse_service(self, line):
-        info = {}
-        parsed = ' '.join(filter(lambda x: x, line.split(' ')))
-        parsed = parsed.split(' ')
-        info['type'] = parsed[0][0]
-        info['mod'] = parsed[0][1:]
-        info['link'] = int(parsed[1])
-        info['owner'] = parsed[2]
-        info['group'] = parsed[3]
-        info['size'] = int(parsed[4])
-        info['modify_time'] = ' '.join(parsed[5:8])
-        info['name'] = parsed[8]
-        return info
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)

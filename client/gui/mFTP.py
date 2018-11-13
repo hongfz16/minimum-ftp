@@ -3,6 +3,7 @@ import re
 import os
 import random
 import socket
+from functools import partial
 
 class mFTP():
     def __init__(self):
@@ -35,6 +36,24 @@ class mFTP():
                 break
         return True
 
+    def socket_read_data_large_callback(self, s, f, size, update_fn, pauseFlag, skip_n):
+        chunk_size = 2048
+        counter = int(skip_n / chunk_size)
+        while True:
+            if pauseFlag['stop']:
+                return -2
+            d = s.recv(chunk_size)
+            counter += 1
+            percent = counter * chunk_size * 1.0 / size * 100
+            if percent > 100:
+                percent = 100
+            if d:
+                f.write(d)
+                update_fn(percent)
+            else:
+                break
+        return 0
+
     def socket_read_command(self):
         buffer = []
         while True:
@@ -61,6 +80,33 @@ class mFTP():
         except Exception as e:
             print(e)
             return -1
+        return 0
+
+    def socket_send_data_large(self, soc, f):
+        for chunk in iter(partial(f.read, 1024), b''):
+            try:
+                soc.send(chunk)
+            except Exception as e:
+                print(e)
+                return -1
+        return 0
+
+    def socket_send_data_large_callback(self, soc, f, size, update_fn, pauseFlag, skip_n):
+        counter = int(skip_n / 1024)
+        for chunk in iter(partial(f.read, 1024), b''):
+            if pauseFlag['stop']:
+                return -2
+            try:
+                soc.send(chunk)
+                counter += 1
+                percent = counter * 1024.0 / size * 100
+                if percent > 100:
+                    percent = 100
+                update_fn(percent)
+            except Exception as e:
+                print(e)
+                return -1
+        update_fn(100)
         return 0
 
     def unpack_response(self, res):
@@ -155,6 +201,44 @@ class mFTP():
             return [response, -1]
         return [response, datas]
 
+    def get_handler_callback(self, remotename, localname, update_fn, pauseFlag):
+        if not self.login_status:
+            return [self.login_required, 1]
+        counter = 0
+        while os.path.exists(localname):
+            counter += 1
+            localname_split = localname.rsplit('.', 1)
+            localname_split[0] += str(counter)
+            localname = '.'.join(localname_split)
+        response, datas = self.passive_connect()
+        if datas == -1:
+            return [response, -1]
+        if datas == -2:
+            return [response, 1]
+        command = b' '.join([b'RETR', remotename.encode(encoding='utf-8')])
+        command = command + b'\r\n'
+        if self.socket_send_command(command)==-1:
+            datas.close()
+            self.connection_broken()
+            return [response + '\nConnection Broken.', -1]
+        second_response = self.socket_read_command()
+        response += second_response
+        code = self.unpack_response(second_response)
+        if code != 150:
+            datas.close()
+            return [response, 1]
+        with open(localname, 'wb') as f:
+            read_result = self.socket_read_data_large_callback(datas, f, pauseFlag['size'], update_fn, pauseFlag, 0)
+            datas.close()
+        third_response = self.socket_read_command()
+        response += third_response
+        code = self.unpack_response(third_response)
+        if code != 226:
+            return [response, 1]
+        if read_result == -2:
+            return [response, 2]
+        return [response, 0]
+
     def get_handler(self, remotename, localname):
         if not self.login_status:
             return [self.login_required, 1]
@@ -246,17 +330,18 @@ class mFTP():
         self.open_status = True
         return [response, 0]
 
-    def put_handler(self, order_content, remotename, skip_n):
+    def put_handler_callback(self, order_content, remotename, skip_n, update_fn, pauseFlag):
         if not self.login_status:
             return [self.login_required, 1]
         try:
             f = open(order_content, 'rb')
+            filesize = os.path.getsize(order_content)
         except Exception as e:
             print(e)
             return ['Cannot open the file: '+order_content, -1]
         try:
             f.seek(skip_n, os.SEEK_SET)
-            data_buffer = f.read()
+            # data_buffer = f.read()
         except Exception as e:
             print(e)
             f.close()
@@ -282,7 +367,60 @@ class mFTP():
             datas.close()
             f.close()
             return [response, 1]
-        if self.socket_send_data(datas, data_buffer)==-1:
+        send_result = self.socket_send_data_large_callback(datas, f, filesize, update_fn,
+                                                           pauseFlag, skip_n)
+        if send_result == -1:
+            f.close()
+            datas.close()
+            return [response+'\nData Connection Broken.', -1]
+        f.close()
+        datas.close()
+        third_response = self.socket_read_command()
+        response += third_response
+        code = self.unpack_response(third_response)
+        if code != 226:
+            return [response, 1]
+        if send_result == -2:
+            return [response, 2]    
+        return [response, 0]
+
+    def put_handler(self, order_content, remotename, skip_n):
+        if not self.login_status:
+            return [self.login_required, 1]
+        try:
+            f = open(order_content, 'rb')
+        except Exception as e:
+            print(e)
+            return ['Cannot open the file: '+order_content, -1]
+        try:
+            f.seek(skip_n, os.SEEK_SET)
+            # data_buffer = f.read()
+        except Exception as e:
+            print(e)
+            f.close()
+            return ['Error while reading the file', -1]
+        response, datas = self.passive_connect()
+        if datas == -1:
+            return [response, -1]
+        if datas == -2:
+            return [response, 1]
+        command_head = b'STOR'
+        if skip_n != 0:
+            command_head = b'APPE'
+        command = b' '.join([command_head, remotename.encode(encoding='utf-8')])
+        command = command + b'\r\n'
+        if self.socket_send_command(command)==-1:
+            datas.close()
+            self.connection_broken()
+            return [response+'\nConnection Broken.', -1]
+        second_response = self.socket_read_command()
+        response += second_response
+        code = self.unpack_response(second_response)
+        if code != 150:
+            datas.close()
+            f.close()
+            return [response, 1]
+        if self.socket_send_data_large(datas, f)==-1:
             f.close()
             datas.close()
             return [response+'\nData Connection Broken.', -1]
@@ -430,15 +568,60 @@ class mFTP():
         if code != 150:
             datas.close()
             return [response, 1]
-        data_buffer = self.socket_read_data(datas)
-        datas.close()
+        # data_buffer = self.socket_read_data(datas)
+        # datas.close()
+        with open(localname, mode) as f:
+            # f.write(data_buffer)
+            self.socket_read_data_large(datas, f)
+            datas.close()
         third_response = self.socket_read_command()
         response += third_response
         code = self.unpack_response(third_response)
         if code != 226:
             return [response, 1]
+        return [response, 0]
+
+    def restart_download_callback(self, remotename, localname, update_fn, pauseFlag):
+        if not self.login_status:
+            return [self.login_required, 1]
+        response, datas = self.passive_connect()
+        if datas == -1:
+            return [response, -1]
+        if datas == -2:
+            return [response, 1]
+        
+        mode = 'ab'
+        tmp_size = os.path.getsize(localname)
+        rest_resp, rest_status = self.rest_handler(tmp_size)
+        response += rest_resp
+        if rest_status != 0:
+            mode = 'wb'
+
+        command = b' '.join([b'RETR', remotename.encode(encoding='utf-8')])
+        command = command + b'\r\n'
+        if self.socket_send_command(command)==-1:
+            datas.close()
+            self.connection_broken()
+            return [response + '\nConnection Broken.', -1]
+        second_response = self.socket_read_command()
+        response += second_response
+        code = self.unpack_response(second_response)
+        if code != 150:
+            datas.close()
+            return [response, 1]
+        # data_buffer = self.socket_read_data(datas)
+        # datas.close()
         with open(localname, mode) as f:
-            f.write(data_buffer)
+            # f.write(data_buffer)
+            read_result = self.socket_read_data_large_callback(datas, f, pauseFlag['size'], update_fn, pauseFlag, tmp_size)
+            datas.close()
+        third_response = self.socket_read_command()
+        response += third_response
+        code = self.unpack_response(third_response)
+        if code != 226:
+            return [response, 1]
+        if read_result == -2:
+            return [response, 2]
         return [response, 0]
 
 def test():
