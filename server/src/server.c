@@ -169,6 +169,10 @@ void* start_one_ftp_worker(void *pftp_thread_struct) {
 	struct sockaddr_in data_addr;
 	int datalistenfd = -1;
 
+	int datafd_arr[65536];
+	for(int i=0;i<65536;++i) {datafd_arr[i]=-1;}
+	int datafd_counter = 0;
+
 	char ftp_root[1024];
 	memset(ftp_root, '\0', sizeof(ftp_root));
 	ftp_root[0]='/';
@@ -189,15 +193,33 @@ void* start_one_ftp_worker(void *pftp_thread_struct) {
 	char move_file_path[1024];
 
 	while(1) {
-		if(datalistenfd>0 && datafd<0) {
-			if((datafd = accept(datalistenfd, NULL, NULL))==-1) {
+		// if(datalistenfd>0 && datafd<0) {
+		// 	if((datafd = accept(datalistenfd, NULL, NULL))==-1) {
+		// 		if(errno != EWOULDBLOCK) {
+		// 			printf("Error accept(): %s(%d)\n", strerror(errno), errno);
+		// 			close(datalistenfd);
+		// 			datalistenfd = -1;
+		// 		}
+		// 	}
+		// 	if(datafd>0) {
+		// 		close(datalistenfd);
+		// 		datalistenfd=-1;
+		// 	}
+		// }
+		if(datalistenfd>0 && datafd_arr[datafd_counter]<0) {
+			if((datafd_arr[datafd_counter] = accept(datalistenfd, NULL, NULL))==-1) {
 				if(errno != EWOULDBLOCK) {
 					printf("Error accept(): %s(%d)\n", strerror(errno), errno);
 					close(datalistenfd);
 					datalistenfd = -1;
 				}
 			}
-			if(datafd>0) {
+			if(datafd_arr[datafd_counter]>0) {
+				datafd_counter = (datafd_counter+1)%65536;
+				if(datafd_arr[datafd_counter]>0) {
+					close(datafd_arr[datafd_counter]);
+					datafd_arr[datafd_counter] = -1;
+				}
 				close(datalistenfd);
 				datalistenfd=-1;
 			}
@@ -237,25 +259,17 @@ void* start_one_ftp_worker(void *pftp_thread_struct) {
 				}
 				break;
 			case 5:
-				if(port_handler(connfd, buffer, &datafd, &data_addr, &datalistenfd)==-1) {
+				if(port_handler(connfd, buffer, datafd_arr, &datafd_counter, &data_addr, &datalistenfd)==-1) {
 					return (void*)returnvalue;
 				}
 				break;
 			case 6:
-				if(retr_handler(connfd, buffer, datafd, cwd, ftp_root, &rest_size, &rest_flag)==-1) {
+				if(retr_handler(connfd, buffer, datafd_arr, datafd_counter-1, cwd, ftp_root, &rest_size, &rest_flag)==-1) {
 					return (void*)returnvalue;
-				}
-				if(datafd>0) {
-					close(datafd);
-					datafd = -1;
-				}
-				if(datalistenfd>0) {
-					close(datalistenfd);
-					datalistenfd = -1;
 				}
 				break;
 			case 7:
-				if(pasv_handler(connfd, buffer, host_ip, &datafd, &datalistenfd)==-1) {
+				if(pasv_handler(connfd, buffer, host_ip, &datalistenfd)==-1) {
 					return (void*)returnvalue;
 				}
 				break;
@@ -280,16 +294,8 @@ void* start_one_ftp_worker(void *pftp_thread_struct) {
 				}
 				break;
 			case 12:
-				if(list_handler(connfd, buffer, datafd, cwd, ftp_root)==-1) {
+				if(list_handler(connfd, buffer, datafd_arr, datafd_counter-1, cwd, ftp_root)==-1) {
 					return (void*)returnvalue;
-				}
-				if(datafd>0) {
-					close(datafd);
-					datafd = -1;
-				}
-				if(datalistenfd>0) {
-					close(datalistenfd);
-					datalistenfd = -1;
 				}
 				break;
 			case 13:
@@ -309,16 +315,8 @@ void* start_one_ftp_worker(void *pftp_thread_struct) {
 				}
 				break;
 			case 16:
-				if(stor_handler(connfd, buffer, datafd, cwd, ftp_root, "wb")==-1) {
+				if(stor_handler(connfd, buffer, datafd_arr, datafd_counter-1, cwd, ftp_root, "wb")==-1) {
 					return (void*)returnvalue;
-				}
-				if(datafd>0) {
-					close(datafd);
-					datafd = -1;
-				}
-				if(datalistenfd>0) {
-					close(datalistenfd);
-					datalistenfd = -1;
 				}
 				break;
 			case 17:
@@ -327,16 +325,8 @@ void* start_one_ftp_worker(void *pftp_thread_struct) {
 				}
 				break;
 			case 18:
-				if(stor_handler(connfd, buffer, datafd, cwd, ftp_root, "ab")==-1) {
+				if(stor_handler(connfd, buffer, datafd_arr, datafd_counter-1, cwd, ftp_root, "ab")==-1) {
 					return (void*)returnvalue;
-				}
-				if(datafd>0) {
-					close(datafd);
-					datafd = -1;
-				}
-				if(datalistenfd>0) {
-					close(datalistenfd);
-					datalistenfd = -1;
 				}
 				break;
 			case 100:

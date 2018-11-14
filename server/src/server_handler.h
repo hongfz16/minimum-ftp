@@ -11,6 +11,8 @@
 #include <dirent.h>
 #include <sys/stat.h>
 
+#include <pthread.h>
+
 #include <ctype.h>
 #include <string.h>
 #include <memory.h>
@@ -33,21 +35,21 @@ int syst_handler(int connfd, char* buffer);
 
 int type_handler(int connfd, char* buffer);
 
-int port_handler(int connfd, char* buffer, int* pdatafd, struct sockaddr_in* paddr, int* pdatalistenfd);
+int port_handler(int connfd, char* buffer, int* datafd_arr, int* datafd_counter, struct sockaddr_in* paddr, int* pdatalistenfd);
 
 int retr_handler_file_err(int connfd, int datafd);
 
 int retr_handler_common_file(int connfd, int datafd, FILE* pfile, long fsize);
 
-int retr_handler(int connfd, char* buffer, int datafd, char* cwd, char* root, int* rest_size, int* rest_flag);
+int retr_handler(int connfd, char* buffer, int* datafd_arr, int datafd_count, char* cwd, char* root, int* rest_size, int* rest_flag);
 
-int pasv_handler(int connfd, char* buffer, int* host_ip, int* pdatafd, int* pdatalistenfd);
+int pasv_handler(int connfd, char* buffer, int* host_ip, int* pdatalistenfd);
 
 int quit_handler(int connfd, char* buffer, int* quit_flag);
 
 int pwd_handler(int connfd, char* buffer, char* cwd, char* root);
 
-int list_handler(int connfd, char* buffer, int datafd, char* cwd, char* root);
+int list_handler(int connfd, char* buffer, int* datafd_arr, int datafd_counter, char* cwd, char* root);
 
 int mkd_handler(int connfd, char* buffer, char* cwd, char* root);
 
@@ -55,7 +57,7 @@ int rmd_handler(int connfd, char* buffer, char* cwd, char* root);
 
 int cwd_handler(int connfd, char* buffer, char* cwd, char* root);
 
-int stor_handler(int connfd, char* buffer, int datafd, char* cwd, char* root, char* mode);
+int stor_handler(int connfd, char* buffer, int* datafd_arr, int datafd_counter, char* cwd, char* root, char* mode);
 
 int login_required_handler(int connfd);
 

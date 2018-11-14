@@ -102,10 +102,11 @@ int type_handler(int connfd, char* buffer) {
 	}
 }
 
-int port_handler(int connfd, char* buffer, int* pdatafd, struct sockaddr_in* paddr, int* pdatalistenfd) {
+int port_handler(int connfd, char* buffer, int* datafd_arr, int* datafd_counter, struct sockaddr_in* paddr, int* pdatalistenfd) {
 	if(strlen(buffer)<7) {
 		return request_not_support_handler(connfd);
 	}
+	int* pdatafd = &(datafd_arr[*datafd_counter]);
 	int port = -1;
 	char addr[256];
 	char response[1024];
@@ -187,6 +188,11 @@ int port_handler(int connfd, char* buffer, int* pdatafd, struct sockaddr_in* pad
 		return 0;
 	}
 	cdebug("Successfully connected.");
+	*datafd_counter = (*datafd_counter+1)%65536;
+	if(datafd_arr[*datafd_counter]>0) {
+		close(datafd_arr[*datafd_counter]);
+		datafd_arr[*datafd_counter] = -1;
+	}
 	return 0;
 }
 
@@ -232,12 +238,11 @@ int retr_handler_common_file(int connfd, int datafd, FILE* pfile, long fsize) {
 			if(msocket_write(connfd, response, strlen(response))==-1) {
 				fclose(pfile);
 				free(data_buffer);
-				printf("cannot transfer 426");
 				return -1;
 			}
 			fclose(pfile);
 			free(data_buffer);
-			return 0;
+			return 1;
 		}
 	}
 	fclose(pfile);
@@ -245,10 +250,54 @@ int retr_handler_common_file(int connfd, int datafd, FILE* pfile, long fsize) {
 	return 0;
 }
 
-int retr_handler(int connfd, char* buffer, int datafd, char* cwd, char* root, int* rest_size, int* rest_flag) {
+struct retr_params {
+	int connfd;
+	int datafd;
+	int* datafd_arr;
+	int datafd_counter;
+	FILE* pfile;
+	long fsize;
+};
+
+void* retr_thread_run(void *arg) {
+	struct retr_params *params;
+	params = (struct retr_params*) arg;
+	int connfd = params->connfd;
+	int datafd = params->datafd;
+	FILE* pfile = params->pfile;
+	long fsize = params->fsize;
+	int* datafd_arr = params->datafd_arr;
+	int datafd_counter = params->datafd_counter;
+
+	char response[1024];
+	int *return_val = (int*)malloc(sizeof(int));
+	*return_val = -1;
+	if(retr_handler_common_file(connfd, datafd, pfile, fsize)!=0) {
+		close(datafd);
+		fclose(pfile);
+		return (void*)return_val;
+	}
+	fclose(pfile);
+	memset(response, '\0', sizeof(response));
+	int len = prepare_response_oneline(response, 226, 1, "Finish sending data.");
+	if(msocket_write(connfd, response, strlen(response))==-1) {
+		close(datafd);
+		// datafd_arr[datafd_counter] = -1;
+		return (void*)return_val;
+	}
+	close(datafd);
+	datafd_arr[datafd_counter] = -1;
+	*return_val = 0;
+	return (void*)return_val;
+}
+
+int retr_handler(int connfd, char* buffer, int* datafd_arr, int datafd_counter, char* cwd, char* root, int* rest_size, int* rest_flag) {
+	int datafd = datafd_arr[datafd_counter];
+
 	if(strlen(buffer)<7) {
 		if(datafd>0) {
 			close(datafd);
+			datafd_arr[datafd_counter] = -1;
 		}
 		return request_not_support_handler(connfd);
 	}
@@ -263,6 +312,8 @@ int retr_handler(int connfd, char* buffer, int datafd, char* cwd, char* root, in
 	if(datafd<0) {
 		int len = prepare_response_oneline(response, 425, 1, "No TCP connection was established.");
 		if(msocket_write(connfd, response, strlen(response))==-1) {
+			close(datafd);
+			datafd_arr[datafd_counter] = -1;
 			return -1;
 		}
 	}
@@ -270,24 +321,14 @@ int retr_handler(int connfd, char* buffer, int datafd, char* cwd, char* root, in
 	memset(response, '\0', sizeof(response));
 	int len = prepare_response_oneline(response, 150, 1, "RETR command confirmed. Trying to send data.");
 	if(msocket_write(connfd, response, strlen(response))==-1) {
+		close(datafd);
+		datafd_arr[datafd_counter] = -1;
 		return -1;
 	}
 	strcpy(filename, cwd);
-	// strcat(filename, root);
-	// int non_sliash = 5;
-	// for(non_sliash=5;non_sliash<strlen(buffer);++non_sliash) {
-	// 	if(buffer[non_sliash]!='/') {
-	// 		break;
-	// 	}
-	// }
-	// filename[strlen(filename)]='/';
-	// strncpy(filename+strlen(filename), buffer+non_sliash, strlen(buffer)-non_sliash-1);
-
 	if(change_directory(root, buffer+5, filename+strlen(filename))==-1) {
 		return retr_handler_file_err(connfd, datafd);
 	}
-
-	// filename[strlen(filename)-1]='\0';
 	cdebug(filename);
 
 	FILE* pfile = fopen(filename, "rb");
@@ -304,26 +345,25 @@ int retr_handler(int connfd, char* buffer, int datafd, char* cwd, char* root, in
 		fseek(pfile, 0, SEEK_END);
 		fsize = 0;
 	}
-	if(retr_handler_common_file(connfd, datafd, pfile, fsize)==-1) {
-		return -1;
+	struct retr_params param;
+	param.connfd = connfd;
+	param.datafd = datafd;
+	param.pfile = pfile;
+	param.fsize = fsize;
+	param.datafd_counter = datafd_counter;
+	param.datafd_arr = datafd_arr;
+	pthread_t id;
+	if(pthread_create(&id, NULL, retr_thread_run, &param)) {
+		printf("Error creating retr thread.\n");
+		return retr_handler_file_err(connfd, datafd);
 	}
-	memset(response, '\0', sizeof(response));
-	len = prepare_response_oneline(response, 226, 1, "Finish sending data.");
-	if(msocket_write(connfd, response, strlen(response))==-1) {
-		return -1;
-	}
-	close(datafd);
+	pthread_detach(id);
 	return 0;
 }
 
-int pasv_handler(int connfd, char* buffer, int* host_ip, int* pdatafd, int* pdatalistenfd) {
+int pasv_handler(int connfd, char* buffer, int* host_ip, int* pdatalistenfd) {
 	if(strlen(buffer)>5) {
 		return request_not_support_handler(connfd);
-	}
-
-	if(*pdatafd>0) {
-		close(*pdatafd);
-		*pdatafd=-1;
 	}
 	if(*pdatalistenfd>0) {
 		close(*pdatalistenfd);
@@ -331,7 +371,6 @@ int pasv_handler(int connfd, char* buffer, int* host_ip, int* pdatafd, int* pdat
 	}
 	char response[1024];
 	memset(response, '\0', sizeof(response));
-	//TODO: consider how to avoid blocking
 	int listenfd;
 	int port = 8001;
 	while(1) {
@@ -346,10 +385,6 @@ int pasv_handler(int connfd, char* buffer, int* host_ip, int* pdatafd, int* pdat
 	if(msocket_write(connfd, response, strlen(response))==-1) {
 		return -1;
 	}
-	// if ((*pdatafd = accept(listenfd, NULL, NULL)) == -1) {
-	// 	printf("Error accept(): %s(%d)\n", strerror(errno), errno);
-	// 	return 0;
-	// }
 	return 0;
 }
 
@@ -383,10 +418,12 @@ int pwd_handler(int connfd, char* buffer, char* cwd, char* root) {
 	return 0;
 }
 
-int list_handler(int connfd, char* buffer, int datafd, char* cwd, char* root) {
+int list_handler(int connfd, char* buffer, int* datafd_arr, int datafd_counter, char* cwd, char* root) {
+	int datafd = datafd_arr[datafd_counter];
 	if(strlen(buffer)>5) {
 		if(datafd>0) {
 			close(datafd);
+			datafd_arr[datafd_counter] = -1;
 		}
 		return request_not_support_handler(connfd);
 	}
@@ -404,6 +441,8 @@ int list_handler(int connfd, char* buffer, int datafd, char* cwd, char* root) {
 	int len = prepare_response_oneline(response, 150, 1, "LIST command confirmed; Trying to send data.");
 	if(msocket_write(connfd, response, strlen(response))==-1) {
 		cdebug("150 error.");
+		close(datafd);
+		datafd_arr[datafd_counter] = -1;
 		return -1;
 	}
 	
@@ -417,16 +456,6 @@ int list_handler(int connfd, char* buffer, int datafd, char* cwd, char* root) {
 	if(d) {
 		char data_buffer[8192];
 		memset(data_buffer, '\0', sizeof(data_buffer));
-		// while((dir=readdir(d))!=NULL) {
-		// 	if(strcmp(root, "/")==0) {
-		// 		if(strcmp(dir->d_name, "..")==0) {
-		// 			continue;
-		// 		}
-		// 	}
-		// 	strcat(data_buffer, dir->d_name);
-		// 	strcat(data_buffer, "\r\n");
-		// }
-		// char os_list_buffer[8192];
 		char path_buffer[1024];
 		FILE *command_fp;
 		/* Open the command for reading. */
@@ -437,16 +466,15 @@ int list_handler(int connfd, char* buffer, int datafd, char* cwd, char* root) {
 			len = prepare_response_oneline(response, 451, 1, "Trouble reading directory.");
 			if(msocket_write(connfd, response, strlen(response))==-1) {
 				close(datafd);
+				datafd_arr[datafd_counter] = -1;
 				return -1;
 			}
 			close(datafd);
+			datafd_arr[datafd_counter] = -1;
 			return 0;
-			// printf("Failed to run command\n" );
-			// exit(1);
 		}
 		/* Read the output a line at a time - output it. */
 		while (fgets(path_buffer, sizeof(path_buffer)-1, command_fp) != NULL) {
-			// printf("%s", path);
 			path_buffer[strlen(path_buffer)-1]='\0';
 			strcat(data_buffer, path_buffer);
 			strcat(data_buffer, "\r\n");
@@ -454,31 +482,34 @@ int list_handler(int connfd, char* buffer, int datafd, char* cwd, char* root) {
 
 		/* close */
 		pclose(command_fp);
- 
 		closedir(d);
-		// cdebug(data_buffer);
 		if(msocket_write(datafd, data_buffer, strlen(data_buffer))==-1) {
 			len = prepare_response_oneline(response, 426, 1, "TCP connection broken.");
 			if(msocket_write(connfd, response, strlen(response))==-1) {
 				close(datafd);
+				datafd_arr[datafd_counter] = -1;
 				return -1;
 			}
 			close(datafd);
+			datafd_arr[datafd_counter] = -1;
 			return 0;
 		}
 		len = prepare_response_oneline(response, 226, 1, "Data successfully transmitted.");
 		if(msocket_write(connfd, response, strlen(response))==-1) {
 			close(datafd);
+			datafd_arr[datafd_counter] = -1;
 			return -1;
 		}
 	} else {
 		len = prepare_response_oneline(response, 451, 1, "Trouble reading directory.");
 		if(msocket_write(connfd, response, strlen(response))==-1) {
 			close(datafd);
+			datafd_arr[datafd_counter] = -1;
 			return -1;
 		}
 	}
 	close(datafd);
+	datafd_arr[datafd_counter] = -1;
 	return 0;
 }
 
@@ -486,31 +517,11 @@ int mkd_handler(int connfd, char* buffer, char* cwd, char* root) {
 	if(strlen(buffer)<6) {
 		return request_not_support_handler(connfd);
 	}
-	// if(strstr(buffer, ".")!=NULL) {
-	// 	return request_not_support_handler(connfd);
-	// }
-	// if(buffer[4]=='/') {
-	// 	char modi_buffer[1024];
-	// 	memset(modi_buffer, '\0', strlen(modi_buffer));
-	// 	sprintf(modi_buffer, "MKD %s", buffer+5);
-	// 	return mkd_handler(connfd, modi_buffer, cwd, "/");
-	// }
 	char response[1024];
 	memset(response, '\0', sizeof(response));
 	char directname[1024];
 	memset(directname, '\0', sizeof(directname));
 	strcpy(directname, cwd);
-	// strcat(directname, root);
-	// int i=0;
-	// for(i=4;i<strlen(buffer);++i) {
-	// 	if(buffer[i]!='/') {
-	// 		break;
-	// 	}
-	// }
-	// if(strcmp(root, "/")!=0) {
-	// 	strcat(directname, "/");
-	// }
-	// strcat(directname, buffer+i);
 	if(change_directory(root, buffer+4, directname+strlen(directname))==-1) {
 		int len = prepare_response_oneline(response, 550, 1, "Directory creation failed.");
 		if(msocket_write(connfd, response, strlen(response))==-1) {
@@ -518,7 +529,6 @@ int mkd_handler(int connfd, char* buffer, char* cwd, char* root) {
 		}
 		return 0;
 	}
-	// directname[strlen(directname)-1] = '\0';
 	cdebug("Making directory in:");
 	cdebug(directname);
 	if(mkdir(directname, S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH)==-1) {
@@ -544,14 +554,6 @@ int rmd_handler(int connfd, char* buffer, char* cwd, char* root) {
 	char directname[1024];
 	memset(directname, '\0', sizeof(directname));
 	strcpy(directname, cwd);
-	// strcat(directname, root);
-	// int i=0;
-	// for(i=4;i<strlen(buffer);++i) {
-	// 	if(buffer[i]!='/') {
-	// 		break;
-	// 	}
-	// }
-	// strcat(directname, buffer+i);
 	if(change_directory(root, buffer+4, directname+strlen(directname))==-1) {
 		int len = prepare_response_oneline(response, 550, 1, "Directory remove failed.");
 		if(msocket_write(connfd, response, strlen(response))==-1) {
@@ -559,7 +561,6 @@ int rmd_handler(int connfd, char* buffer, char* cwd, char* root) {
 		}
 		return 0;
 	}
-	// directname[strlen(directname)-1] = '\0';
 	if(rmdir(directname)==-1) {
 		int len = prepare_response_oneline(response, 550, 1, "Directory remove failed.");
 		if(msocket_write(connfd, response, strlen(response))==-1) {
@@ -584,105 +585,11 @@ int cwd_handler(int connfd, char* buffer, char* cwd, char* root) {
 	memset(parameter, '\0', sizeof(parameter));
 	strcpy(parameter, buffer+4);
 	parameter[strlen(parameter)-1]='\0';
-	// int i = 0;
-	// int parameter_count = 0;
-	// if(buffer[4]=='/') {
-	// 	for(i=5;i<strlen(buffer)-1;++i) {
-	// 		parameter[parameter_count]=buffer[i];
-	// 		parameter_count++;
-	// 	}
-	// 	if(strlen(parameter)==0) {
-	// 		parameter[0]='.';
-	// 	}
-
-	// 	char modi_buffer[1024];
-	// 	memset(modi_buffer, '\0', sizeof(modi_buffer));
-	// 	sprintf(modi_buffer, "CWD %s\n", parameter);
-	// 	char modi_root[1024];
-	// 	memset(modi_root, '\0', sizeof(modi_root));
-	// 	modi_root[0]='/';
-	// 	int code = cwd_handler(connfd, modi_buffer, cwd, modi_root);
-	// 	if(code==-1) {
-	// 		return -1;
-	// 	} else if(code==1) {
-	// 		return 1;
-	// 	} else if(code==0) {
-	// 		memset(root, '\0', ROOT_LENGTH);
-	// 		strcpy(root, modi_root);
-	// 		return 0;
-	// 	}
-	// }
-	// for(i=4;i<strlen(buffer);++i) {
-	// 	if(buffer[i]!='/') {
-	// 		break;
-	// 	}
-	// }
-	// for(;i<strlen(buffer);++i) {
-	// 	if(buffer[i]=='\n') {
-	// 		continue;
-	// 	}
-	// 	parameter[parameter_count]=buffer[i];
-	// 	parameter_count++;
-	// }
-	// for(i=strlen(parameter)-1;i>=0;--i) {
-	// 	if(parameter[i]!='/') {
-	// 		break;
-	// 	}
-	// 	parameter[i]='\0';
-	// }
-	// if(strcmp(parameter, ".")==0) {
-	// 	int len = prepare_response_oneline(response, 250, 1, "Okay.");
-	// 	if(msocket_write(connfd, response, strlen(response))==-1) {
-	// 		return -1;
-	// 	}
-	// 	return 0;
-	// }
-	// if(strcmp(parameter, "..")!=0 && strstr(parameter, "..")!=NULL) {
-	// 	return request_not_support_handler(connfd);
-	// }
-	// if(strcmp(root, "/")==0 && strcmp(parameter, "..")==0) {
-	// 	char info[1024];
-	// 	memset(info, '\0', sizeof(info));
-	// 	sprintf(info, "%s: No such file or directory.", parameter);
-	// 	int len = prepare_response_oneline(response, 550, 1, info);
-	// 	if(msocket_write(connfd, response, strlen(response))==-1) {
-	// 		return -1;
-	// 	}
-	// 	return 1;
-	// }
 	char test_root[1024];
 	memset(test_root, '\0', sizeof(test_root));
-	// strcpy(test_root, root);
-	// char test_path[1024];
-	// memset(test_path, '\0', sizeof(test_path));
-	// strcpy(test_path, cwd);
-	// if(strcmp(parameter, "..")==0) {
-	// 	int root_len = strlen(test_root);
-	// 	for(;root_len>=0;--root_len) {
-	// 		if(test_root[root_len]!='/') {
-	// 			break;
-	// 		}
-	// 		test_root[root_len]='\0';
-	// 	}
-	// 	for(;root_len>=0;--root_len) {
-	// 		if(test_root[root_len]=='/') {
-	// 			break;
-	// 		}
-	// 		test_root[root_len]='\0';
-	// 	}
-	// } else {
-	// 	if(strcmp(test_root, "/")!=0) {
-	// 		strcat(test_root, "/");
-	// 	}
-	// 	strcat(test_root, parameter);
-	// }
-	// strcat(test_path, test_root);
 	char test_path[2048];
 	memset(test_path, '\0', sizeof(test_path));
 	strcpy(test_path, cwd);
-	// printf("%s\n", test_path);
-	// printf("%s\n", root);
-	// printf("%s\n", buffer+4);
 	if(change_directory(root, buffer+4, test_root)==-1) {
 		char info[1024];
 		memset(info, '\0', sizeof(info));
@@ -693,9 +600,7 @@ int cwd_handler(int connfd, char* buffer, char* cwd, char* root) {
 		}
 		return 1;
 	}
-	// test_root[strlen(test_root)-1]='\0';
 	strcat(test_path, test_root);
-	// cdebug(test_path);
 	DIR* d;
 	struct dirent * dir;
 	d = opendir(test_path);
@@ -720,10 +625,74 @@ int cwd_handler(int connfd, char* buffer, char* cwd, char* root) {
 	return 0;
 }
 
-int stor_handler(int connfd, char* buffer, int datafd, char* cwd, char* root, char* mode) {
+struct stor_params {
+	int connfd;
+	int datafd;
+	int* datafd_arr;
+	int datafd_counter;
+	FILE* pfile;
+};
+
+void* stor_thread_run(void* args) {
+	struct stor_params* params;
+	params = (struct stor_params*)args;
+	int connfd = params->connfd;
+	int datafd = params->datafd;
+	int* datafd_arr = params->datafd_arr;
+	int datafd_counter = params->datafd_counter;
+	FILE* pfile = params->pfile;
+
+	char response[1024];
+	memset(response, '\0', sizeof(response));
+	int len = 0;
+
+	int* return_val = (int*)malloc(sizeof(int));
+	*return_val = -1;
+
+	int datalen=msocket_read_file_large(datafd, pfile);
+	if(datalen == -1) {
+		len = prepare_response_oneline(response, 426, 1, "Connection broken.");
+		if(msocket_write(connfd, response, strlen(response))==-1) {
+			fclose(pfile);
+			close(datafd);
+			return (void*)return_val;
+		}
+		fclose(pfile);
+		close(datafd);
+		return (void*)return_val;
+	}
+	else if(datalen == -2) {
+		len = prepare_response_oneline(response, 451, 1, "Problem saving the file.");
+		if(msocket_write(connfd, response, strlen(response))==-1) {
+			fclose(pfile);
+			close(datafd);
+			return (void*)return_val;
+		}
+		fclose(pfile);
+		close(datafd);
+		datafd_arr[datafd_counter] = -1;
+		return (void*)return_val;
+	}
+	len = prepare_response_oneline(response, 226, 1, "Successfully receive data.");
+	if(msocket_write(connfd, response, strlen(response))==-1) {
+		fclose(pfile);
+		close(datafd);
+		// datafd_arr[datafd_counter] = -1;
+		return (void*)return_val;
+	}
+	fclose(pfile);
+	close(datafd);
+	// datafd_arr[datafd_counter] = -1;
+	*return_val = 0;
+	return (void*)return_val;
+}
+
+int stor_handler(int connfd, char* buffer, int* datafd_arr, int datafd_counter, char* cwd, char* root, char* mode) {
+	int datafd = datafd_arr[datafd_counter];
 	if(strlen(buffer)<7) {
 		if(datafd>0) {
 			close(datafd);
+			datafd_arr[datafd_counter] = -1;
 		}
 		return request_not_support_handler(connfd);
 	}
@@ -738,12 +707,10 @@ int stor_handler(int connfd, char* buffer, int datafd, char* cwd, char* root, ch
 	int len = prepare_response_oneline(response, 150, 1, "STOR command confirmed; Start receiving data.");
 	if(msocket_write(connfd, response, strlen(response))==-1) {
 		close(datafd);
+		datafd_arr[datafd_counter] = -1;
 		return -1;
 	}
 	memset(response, '\0', sizeof(response));
-	// char* data_buffer = (char*)malloc(sizeof(char)*1024*1024);
-	// memset(data_buffer, '\0', 1024*1024);
-	int datalen = 0;
 
 	char filename[1024];
 	memset(filename, '\0', sizeof(filename));
@@ -753,52 +720,34 @@ int stor_handler(int connfd, char* buffer, int datafd, char* cwd, char* root, ch
 		len = prepare_response_oneline(response, 451, 1, "Problem saving the file.");
 		if(msocket_write(connfd, response, strlen(response))==-1) {
 			close(datafd);
+			datafd_arr[datafd_counter] = -1;
 			return -1;
 		}
 		close(datafd);
+		datafd_arr[datafd_counter] = -1;
 		return 1;
 	}
 
 	FILE* pfile = fopen(filename, mode);
-	datalen=msocket_read_file_large(datafd, pfile);
-	if(datalen == -1) {
+	struct stor_params params;
+	params.connfd = connfd;
+	params.datafd = datafd;
+	params.datafd_arr = datafd_arr;
+	params.datafd_counter = datafd_counter;
+	params.pfile = pfile;
+	pthread_t id;
+	if(pthread_create(&id, NULL, stor_thread_run, &params)) {
+		printf("Error creating stor thread.\n");
 		len = prepare_response_oneline(response, 426, 1, "Connection broken.");
 		if(msocket_write(connfd, response, strlen(response))==-1) {
 			close(datafd);
+			datafd_arr[datafd_counter] = -1;
 			return -1;
 		}
 		close(datafd);
 		return 1;
 	}
-	else if(datalen == -2) {
-		len = prepare_response_oneline(response, 451, 1, "Problem saving the file.");
-		if(msocket_write(connfd, response, strlen(response))==-1) {
-			close(datafd);
-			return -1;
-		}
-		fclose(pfile);
-		close(datafd);
-		return 1;
-	}
-	// FILE* pfile = fopen(filename, mode);
-	// if(fwrite(data_buffer, sizeof(char), datalen, pfile)==-1) {
-	// 	len = prepare_response_oneline(response, 451, 1, "Problem saving the file.");
-	// 	if(msocket_write(connfd, response, strlen(response))==-1) {
-	// 		close(datafd);
-	// 		return -1;
-	// 	}
-	// 	fclose(pfile);
-	// 	close(datafd);
-	// 	return 1;
-	// }
-	len = prepare_response_oneline(response, 226, 1, "Successfully receive data.");
-	if(msocket_write(connfd, response, strlen(response))==-1) {
-		fclose(pfile);
-		close(datafd);
-		return -1;
-	}
-	fclose(pfile);
-	close(datafd);
+	pthread_detach(id);
 	return 0;
 }
 
