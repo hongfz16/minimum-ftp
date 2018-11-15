@@ -454,7 +454,7 @@ int list_handler(int connfd, char* buffer, int* datafd_arr, int datafd_counter, 
 	d = opendir(dirname);
 	memset(response, '\0', sizeof(response));
 	if(d) {
-		char data_buffer[8192*128];
+		char data_buffer[8192*4];
 		memset(data_buffer, '\0', sizeof(data_buffer));
 		char path_buffer[1024];
 		FILE *command_fp;

@@ -19,7 +19,7 @@ from PyQt5.QtGui import (QStandardItemModel, QIcon, QStandardItem,
 class LocalFileSystemModel(QStandardItemModel):
     def __init__(self):
         super().__init__()
-        self.path=Path('/home/hongfz')
+        self.path=Path('/Users/hongfz')
         self.setupItem()
 
     def setupItem(self):
