@@ -12,6 +12,7 @@
 #include <sys/stat.h>
 
 #include <pthread.h>
+#include <signal.h>
 
 #include <ctype.h>
 #include <string.h>

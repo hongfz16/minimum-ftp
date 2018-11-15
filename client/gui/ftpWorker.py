@@ -45,12 +45,7 @@ class putWorker(QRunnable):
         
         response, code = self.ftp.put_handler_callback(self.localname, self.remotename, self.skip_n,
                                                        self.put_update_callback, self.pauseFlag)
-        # if code == 0:
-        #     self.signals.finishsignal.emit((response, 0, self.remotename))
-        # elif code == 1:
-        #     self.signals.finishsignal.emit((response, 1, self.remotename))
-        # elif code == 2:
-        #     self.signals.finishsignal.emit((response, 2, self.remotename))
+
         self.signals.finishsignal.emit((response, code, self.remotename))
 
 class getWorker(QRunnable):

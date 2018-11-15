@@ -454,7 +454,7 @@ int list_handler(int connfd, char* buffer, int* datafd_arr, int datafd_counter, 
 	d = opendir(dirname);
 	memset(response, '\0', sizeof(response));
 	if(d) {
-		char data_buffer[8192];
+		char data_buffer[8192*128];
 		memset(data_buffer, '\0', sizeof(data_buffer));
 		char path_buffer[1024];
 		FILE *command_fp;
@@ -474,7 +474,12 @@ int list_handler(int connfd, char* buffer, int* datafd_arr, int datafd_counter, 
 			return 0;
 		}
 		/* Read the output a line at a time - output it. */
+		int skip_first = 1;
 		while (fgets(path_buffer, sizeof(path_buffer)-1, command_fp) != NULL) {
+			if(skip_first) {
+				skip_first = 0;
+				continue;
+			}
 			path_buffer[strlen(path_buffer)-1]='\0';
 			strcat(data_buffer, path_buffer);
 			strcat(data_buffer, "\r\n");

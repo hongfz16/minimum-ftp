@@ -44,7 +44,10 @@ class mFTP():
                 return -2
             d = s.recv(chunk_size)
             counter += 1
-            percent = counter * chunk_size * 1.0 / size * 100
+            if size==0:
+                percent = 100
+            else:
+                percent = counter * chunk_size * 1.0 / size * 100
             if percent > 100:
                 percent = 100
             if d:
@@ -52,6 +55,8 @@ class mFTP():
                 update_fn(percent)
             else:
                 break
+        if size == 0:
+            update_fn(100)
         return 0
 
     def socket_read_command(self):
@@ -99,7 +104,10 @@ class mFTP():
             try:
                 soc.send(chunk)
                 counter += 1
-                percent = counter * 1024.0 / size * 100
+                if size==0:
+                    percent = 100
+                else:
+                    percent = counter * 1024.0 / size * 100
                 if percent > 100:
                     percent = 100
                 update_fn(percent)

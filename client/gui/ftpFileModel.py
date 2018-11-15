@@ -19,7 +19,7 @@ from PyQt5.QtGui import (QStandardItemModel, QIcon, QStandardItem,
 class LocalFileSystemModel(QStandardItemModel):
     def __init__(self):
         super().__init__()
-        self.path=Path('/Users/hongfz/Downloads')
+        self.path=Path('/home/hongfz')
         self.setupItem()
 
     def setupItem(self):
@@ -65,9 +65,26 @@ class RemoteFileSystemModel(QStandardItemModel):
         result = self.ftp.ls_handler()
         self.gui.printLog(result, 'ls')
         if result[1] == 0:
-            for x in result[2][1:]:
+            two_more = ['.', '..']
+            for x in two_more:
+                item = QStandardItem(QApplication.style().standardIcon(QStyle.SP_DirIcon), x)
+                item.setEditable(False)
+                self.appendRow(item)
+                info = {}
+                info['type'] = 'd'
+                info['mod'] = ''
+                info['link'] = 0
+                info['owner'] = ''
+                info['group'] = ''
+                info['size'] = ''
+                info['modify_time'] = ''
+                info['name'] = x
+                self.file_info[x] = info
+            for x in result[2]:
+                if x=='':
+                    continue
                 info = self.parse_linux_ls(x)
-                if self.path == '/' and info['name'] == '..':
+                if info['name'] == '.' or info['name'] == '..':
                     continue
                 if info['type'] == 'd':
                     item = QStandardItem(QApplication.style().standardIcon(QStyle.SP_DirIcon), info['name'])
@@ -117,14 +134,13 @@ class RemoteFileSystemModel(QStandardItemModel):
 
     def parse_linux_ls(self, line):
         info = self.single_parse_service(line)
-        # self.file_info.append(info)
         self.file_info[info['name']] = info
         return info
 
     def single_parse_service(self, line):
         info = {}
         parsed = ' '.join(filter(lambda x: x, line.split(' ')))
-        parsed = parsed.split(' ')
+        parsed = parsed.split(' ', 8)
         info['type'] = parsed[0][0]
         info['mod'] = parsed[0][1:]
         info['link'] = int(parsed[1])
