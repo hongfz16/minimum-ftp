@@ -22,7 +22,7 @@ from ftpFileModel import LocalFileSystemModel, RemoteFileSystemModel
 class FTPGUI(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.debug = True
+        self.debug = False
         self.ftp = mFTP()
         if self.debug:
             self.ftp.open_handler('127.0.0.1', 8000)
