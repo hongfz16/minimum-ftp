@@ -23,7 +23,7 @@ class WorkerSignals(QObject):
 
 class putWorker(QRunnable):
     def __init__(self, ftp, localname, remotename, skip_n, dlpb,
-                 putUpdatePBSlot, putFinishSlot, pauseFlag):
+                 putUpdatePBSlot, putFinishSlot, pauseFlag, id):
         super(putWorker, self).__init__()
         self.ftp = ftp
         self.localname = localname
@@ -34,9 +34,10 @@ class putWorker(QRunnable):
         self.putFinishSlot = putFinishSlot
         self.signals = WorkerSignals()
         self.pauseFlag = pauseFlag
+        self.id = id
 
     def put_update_callback(self, percentage):
-        self.signals.updatesignal.emit((percentage, self.dlpb))
+        self.signals.updatesignal.emit((percentage, self.dlpb, self.id))
 
     @pyqtSlot()
     def run(self):
@@ -46,11 +47,11 @@ class putWorker(QRunnable):
         response, code = self.ftp.put_handler_callback(self.localname, self.remotename, self.skip_n,
                                                        self.put_update_callback, self.pauseFlag)
 
-        self.signals.finishsignal.emit((response, code, self.remotename))
+        self.signals.finishsignal.emit((response, code, self.remotename, self.id))
 
 class getWorker(QRunnable):
     def __init__(self, ftp, localname, remotename, skip_flag, ulpb,
-                 getUpdatePBSlot, getFinishSlot, pauseFlag):
+                 getUpdatePBSlot, getFinishSlot, pauseFlag, id):
         super(getWorker, self).__init__()
         self.ftp = ftp
         self.localname = localname
@@ -61,9 +62,10 @@ class getWorker(QRunnable):
         self.getFinishSlot = getFinishSlot
         self.signals = WorkerSignals()
         self.pauseFlag = pauseFlag
+        self.id = id
 
     def get_update_callback(self, percentage):
-        self.signals.updatesignal.emit((percentage, self.ulpb))
+        self.signals.updatesignal.emit((percentage, self.ulpb, self.id))
 
     @pyqtSlot()
     def run(self):
@@ -76,4 +78,4 @@ class getWorker(QRunnable):
             response, code = self.ftp.restart_download_callback(self.remotename, self.localname,
                                                                 self.get_update_callback, self.pauseFlag)
 
-        self.signals.finishsignal.emit((response, code, self.remotename))
+        self.signals.finishsignal.emit((response, code, self.remotename, self.id))

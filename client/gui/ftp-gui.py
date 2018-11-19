@@ -29,6 +29,8 @@ class FTPGUI(QMainWindow):
             self.ftp.user_handler('anonymous', 'password')
         self.initUI()
         self.threadpool = QThreadPool()
+        self.getFlags = []
+        self.putFlags = []
 
     def initUI(self):
         self.centerwidget = QWidget(self)
@@ -250,7 +252,6 @@ class FTPGUI(QMainWindow):
         dlfilename = QLabel(filename[:30])
         downloadprogress = QProgressBar(self)
         dlbutton = QPushButton('Pause')
-        dlbutton.clicked.connect(self.putPauseSlot)
         dlvlay.addWidget(typelabel, 1)
         dlvlay.addWidget(dlfilename, 2)
         dlvlay.addWidget(downloadprogress, 6)
@@ -262,14 +263,16 @@ class FTPGUI(QMainWindow):
         self.tasklist.setItemWidget(downloadtask, listwidget)
 
         path = self.localfileModel.path/filename
-        self.putPauseflag = {'stop':False, 'button':dlbutton,
+        putPauseflag = {'stop':False, 'button':dlbutton,
                              'dlpb':downloadprogress, 'localname':path,
                              'remotefullpath':self.remotefileModel.path,
                              'remotename':filename}
-        # putresult = self.ftp.put_handler(path, filename, 0)
+        self.putFlags.append(putPauseflag)
+        id = len(self.putFlags) - 1
+        dlbutton.clicked.connect(self.putPauseSlot(id))
         worker = putWorker(self.ftp, path, filename, 0,
                            downloadprogress, self.putUpdatePBSlot, self.putFinishSlot,
-                           self.putPauseflag)
+                           putPauseflag, id)
         self.threadpool.start(worker)
 
     def putUpdatePBSlot(self, tup):
@@ -279,33 +282,38 @@ class FTPGUI(QMainWindow):
         new_code = 0
         if tup[1] == 1:
             new_code = 1
+        putPauseflag = self.putFlags[tup[3]]
         self.printLog([tup[0], new_code], 'put ' + tup[2])
         if tup[1] != 1:
             self.remotefileModel.setupItem()
         if tup[1] == 0:
-            self.putPauseflag['stop'] = True
-            self.putPauseflag['button'].setEnabled(False)
+            putPauseflag['stop'] = True
+            putPauseflag['button'].setEnabled(False)
 
-    def putPauseSlot(self):
-        if not self.putPauseflag['stop']:
-            self.putPauseflag['stop'] = True
-            self.putPauseflag['button'].setText('Continue')
-        else:
-            self.putPauseflag['stop'] = False
-            self.putPauseflag['button'].setText('Pause')
-            localname = self.putPauseflag['localname']
-            remotename = self.putPauseflag['remotename']
-            remotefullpath = self.putPauseflag['remotefullpath']
-            dlpb = self.putPauseflag['dlpb']
-            info = self.remotefileModel.getinfo(remotefullpath, remotename)
-            if info['size']:
-                size = info['size']
+    def putPauseSlot(self, id):
+        def realPauseSlot():
+            putPauseflag = self.putFlags[id]
+            if not putPauseflag['stop']:
+                putPauseflag['stop'] = True
+                putPauseflag['button'].setText('Continue')
             else:
-                size = 0
-            worker = putWorker(self.ftp, localname, remotefullpath + '/' + remotename, size,
-                               dlpb, self.putUpdatePBSlot, self.putFinishSlot,
-                               self.putPauseflag)
-            self.threadpool.start(worker)
+                putPauseflag['stop'] = False
+                putPauseflag['button'].setText('Pause')
+                localname = putPauseflag['localname']
+                remotename = putPauseflag['remotename']
+                remotefullpath = putPauseflag['remotefullpath']
+                dlpb = putPauseflag['dlpb']
+                info = self.remotefileModel.getinfo(remotefullpath, remotename)
+                # if info['size']:
+                try:
+                    size = info['size']
+                except:
+                    size = 0
+                worker = putWorker(self.ftp, localname, remotefullpath + '/' + remotename, size,
+                                   dlpb, self.putUpdatePBSlot, self.putFinishSlot,
+                                   putPauseflag, id)
+                self.threadpool.start(worker)
+        return realPauseSlot
 
     def doubleClickLocalFile(self, index):
         self.localfileModel.changeDir(index.data())
@@ -316,10 +324,6 @@ class FTPGUI(QMainWindow):
         remotefullpath = self.remotefileModel.path
         localfilename = str(self.localfileModel.path/filename)
         size = self.remotefileModel.file_info[remotefilename]['size']
-        # getresult = self.ftp.get_handler(filename, localfilename)
-        # self.printLog(getresult, 'get ' + filename)
-        # if getresult[1] == 0:
-        #     self.localfileModel.setupItem()
         gettaskitem = QListWidgetItem(self.tasklist)
         self.tasklist.addItem(gettaskitem)
         
@@ -329,7 +333,6 @@ class FTPGUI(QMainWindow):
         dlfilename = QLabel(filename[:30])
         getpb = QProgressBar(self)
         dlbutton = QPushButton('Pause')
-        dlbutton.clicked.connect(self.getPauseSlot)
         dlvlay.addWidget(typelabel, 1)
         dlvlay.addWidget(dlfilename, 2)
         dlvlay.addWidget(getpb, 6)
@@ -340,12 +343,17 @@ class FTPGUI(QMainWindow):
         gettaskitem.setFlags(gettaskitem.flags() & ~Qt.ItemIsSelectable)
         self.tasklist.setItemWidget(gettaskitem, listwidget)
 
-        self.getPauseflag = {'stop':False, 'button':dlbutton,
+        getPauseflag = {'stop':False, 'button':dlbutton,
                              'getpb':getpb, 'localname':localfilename,
                              'remotefullpath':remotefullpath,
                              'remotename':filename, 'size':size}
+
+        self.getFlags.append(getPauseflag)
+        id = len(self.getFlags) - 1
+        dlbutton.clicked.connect(self.getPauseSlot(id))
+
         worker = getWorker(self.ftp, localfilename, remotefullpath + '/' + remotefilename,
-                           False, getpb, self.getUpdatePBSlot, self.getFinishSlot, self.getPauseflag)
+                           False, getpb, self.getUpdatePBSlot, self.getFinishSlot, self.getFlags[id], id)
         self.threadpool.start(worker)
 
     def getUpdatePBSlot(self, tup):
@@ -353,29 +361,33 @@ class FTPGUI(QMainWindow):
 
     def getFinishSlot(self, tup):
         new_code = 0
+        getPauseflag = self.getFlags[tup[3]]
         if tup[1] == 1:
             new_code = 1
         self.printLog([tup[0], new_code], 'get ' + tup[2])
         if tup[1] != 1:
             self.localfileModel.setupItem()
         if tup[1] == 0:
-            self.getPauseflag['stop'] = True
-            self.getPauseflag['button'].setEnabled(False)
+            getPauseflag['stop'] = True
+            getPauseflag['button'].setEnabled(False)
 
-    def getPauseSlot(self):
-        if not self.getPauseflag['stop']:
-            self.getPauseflag['stop'] = True
-            self.getPauseflag['button'].setText('Continue')
-        else:
-            self.getPauseflag['stop'] = False
-            self.getPauseflag['button'].setText('Pause')
-            localfilename = self.getPauseflag['localname']
-            remotefullpath = self.getPauseflag['remotefullpath']
-            remotename = self.getPauseflag['remotename']
-            getpb = self.getPauseflag['getpb']
-            worker = getWorker(self.ftp, localfilename, remotefullpath + '/' + remotename,
-                               True, getpb, self.getUpdatePBSlot, self.getFinishSlot, self.getPauseflag)
-            self.threadpool.start(worker)
+    def getPauseSlot(self, id):
+        def realPauseSlot():
+            getPauseflag = self.getFlags[id]
+            if not getPauseflag['stop']:
+                getPauseflag['stop'] = True
+                getPauseflag['button'].setText('Continue')
+            else:
+                getPauseflag['stop'] = False
+                getPauseflag['button'].setText('Pause')
+                localfilename = getPauseflag['localname']
+                remotefullpath = getPauseflag['remotefullpath']
+                remotename = getPauseflag['remotename']
+                getpb = getPauseflag['getpb']
+                worker = getWorker(self.ftp, localfilename, remotefullpath + '/' + remotename,
+                                   True, getpb, self.getUpdatePBSlot, self.getFinishSlot, getPauseflag, id)
+                self.threadpool.start(worker)
+        return realPauseSlot
 
     def remoteMkdir(self):
         text, ok = QInputDialog.getText(self, 'New Directory', 'Enter new directory name:')
