@@ -19,12 +19,12 @@
 
 ### 服务器端
 
-- Ubuntu 18.04
-- GCC
+- Ubuntu 16.04
+- GCC 7.3.0
 
 ### 客户端
 
-- Ubuntu 18.04
+- Ubuntu 16.04
 - Python3.7
 
 ## 实验结果概述
